@@ -898,7 +898,7 @@ func (w *Wallet) handleWinningTickets(blockHash *chainhash.Hash,
 	var ticketHashes []*chainhash.Hash
 	var votes []*wire.MsgTx
 	voteBits := w.VoteBits()
-	err = walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
+	err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
 		txmgrNs := dbtx.ReadBucket(wtxmgrNamespaceKey)
 
 		// Only consider tickets owned by this wallet.
@@ -945,45 +945,43 @@ func (w *Wallet) handleWinningTickets(blockHash *chainhash.Hash,
 				continue
 			}
 			votes[i] = vote
+			if vote == nil {
+				continue
+			}
+			txRec, err := udb.NewTxRecordFromMsgTx(vote, time.Now())
+			if err != nil {
+				log.Errorf("Failed to create transaction record for vote %v: %v",
+					ticketHashes[i], err)
+				continue
+			}
+			voteHash := &txRec.Hash
+			err = w.processTransactionRecord(dbtx, txRec, nil, nil)
+			if err != nil {
+				log.Errorf("Failed to processtransaction record for ticket hash %v: %v",
+					ticketHashes[i], err)
+				continue
+			}
+			err = w.StakeMgr.StoreVoteInfo(dbtx, ticketHashes[i], voteHash,
+				blockHash, blockHeight, voteBits)
+			if err != nil {
+				log.Errorf("Failed to store vote info for ticket hash %v: %v",
+					ticketHashes[i], err)
+				continue
+			}
+			_, err = chainClient.SendRawTransaction(vote, true)
+			if err != nil {
+				log.Errorf("Failed to send raw vote tx for ticket hash %v: %v",
+					ticketHashes[i], err)
+				continue
+			}
+			log.Infof("Voted on block %v (height %v) using ticket %v "+
+				"(vote hash: %v bits: %v)", blockHash, blockHeight,
+				ticketHashes[i], voteHash, voteBits.Bits)
 		}
 		return nil
 	})
 	if err != nil {
 		log.Errorf("View failed: %v", err)
-	}
-
-	for i, vote := range votes {
-		if vote == nil {
-			continue
-		}
-		txRec, err := udb.NewTxRecordFromMsgTx(vote, time.Now())
-		if err != nil {
-			log.Errorf("Failed to create transaction record for vote %v: %v",
-				ticketHashes[i], err)
-			continue
-		}
-		voteHash := &txRec.Hash
-		err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
-			err := w.processTransactionRecord(dbtx, txRec, nil, nil)
-			if err != nil {
-				return err
-			}
-			err = w.StakeMgr.StoreVoteInfo(dbtx, ticketHashes[i], voteHash,
-				blockHash, blockHeight, voteBits)
-			if err != nil {
-				return err
-			}
-			_, err = chainClient.SendRawTransaction(vote, true)
-			return err
-		})
-		if err != nil {
-			log.Errorf("Failed to send vote for ticket hash %v: %v",
-				ticketHashes[i], err)
-			continue
-		}
-		log.Infof("Voted on block %v (height %v) using ticket %v "+
-			"(vote hash: %v bits: %v)", blockHash, blockHeight,
-			ticketHashes[i], voteHash, voteBits.Bits)
 	}
 
 	return nil
