@@ -1,12 +1,12 @@
-hash: fa5adea36a6205cd9c044a9f5be3028655687bae161c14fea83e0558e36fb1e5
-updated: 2017-09-20T20:38:59.92760126-04:00
+hash: c6dcc5cc26fcf2771b9c0696b2b68a2c454e857e07303c45da7cd1ba91d724b4
+updated: 2017-09-22T11:36:45.322183317-04:00
 imports:
 - name: github.com/agl/ed25519
-  version: 278e1ec8e8a6e017cd07577924d6766039146ced
+  version: 5312a61534124124185d41f09206b9fef1d88403
   subpackages:
   - edwards25519
 - name: github.com/boltdb/bolt
-  version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
+  version: 2f1ce7a837dcb8da3ec595b1dac9d0632f0f99e8
 - name: github.com/btcsuite/btclog
   version: 84c8d2346e9fc8c7b947e243b9c24e6df9fd206a
 - name: github.com/btcsuite/go-socks
@@ -20,9 +20,11 @@ imports:
 - name: github.com/decred/bitset
   version: 484b833245d5f9046e2893a6bd2e54b1df3a53a4
 - name: github.com/decred/dcrd
-  version: ecf5f0a00e3ae1463f46b1c52d2a6a93fed8eb62
+  version: f3c5637022562611948cb7fbbbf801856d659148
+  repo: https://github.com/davecgh/btcd
   subpackages:
   - blockchain
+  - blockchain/indexers
   - blockchain/internal/dbnamespace
   - blockchain/internal/progresslog
   - blockchain/stake
@@ -37,6 +39,8 @@ imports:
   - dcrec/secp256k1
   - dcrec/secp256k1/schnorr
   - dcrjson
+  - mempool
+  - mining
   - txscript
   - wire
 - name: github.com/decred/dcrrpcclient
@@ -47,12 +51,15 @@ imports:
   - base58
   - hdkeychain
 - name: github.com/golang/protobuf
-  version: 5a0f697c9ed9d68fef0116532c6e05cfeae00e55
+  version: 130e6b02ab059e7b717a096f397c5b60111cae74
   subpackages:
   - proto
+  - ptypes
   - ptypes/any
+  - ptypes/duration
+  - ptypes/timestamp
 - name: github.com/jessevdk/go-flags
-  version: 48cf8722c3375517aba351d1f7577c40663a4407
+  version: 96dc06278ce32a0e9d957d590bb987c81ee66407
 - name: github.com/jrick/logrotate
   version: a93b200c26cbae3bb09dd0dc2c7c7fe1468a034a
   subpackages:
@@ -68,7 +75,7 @@ imports:
   - scrypt
   - ssh/terminal
 - name: golang.org/x/net
-  version: b60f3a92103dfd93dfcb900ec77c6d0643510868
+  version: 0744d001aa8470aaa53df28d32e5ceeb8af9bd70
   subpackages:
   - context
   - http2
@@ -82,7 +89,7 @@ imports:
   subpackages:
   - errgroup
 - name: golang.org/x/sys
-  version: b6e1ae21643682ce023deb8d152024597b0e9bb4
+  version: 429f518978ab01db8bb6f44b66785088e7fba58b
   subpackages:
   - unix
   - windows
@@ -94,15 +101,16 @@ imports:
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/genproto
-  version: aa2eb687b4d3e17154372564ad8d6bf11c3cf21f
+  version: 1e559d0a00eef8a9a43151db4665280bd8dd5886
   subpackages:
   - googleapis/rpc/status
 - name: google.golang.org/grpc
-  version: d8960bd63c6743defa6d54926e5edfa8e4a28e43
+  version: f92cdcd7dcdc69e81b2d7b338479a19a8723cfa3
   subpackages:
   - codes
+  - connectivity
   - credentials
-  - grpclb/grpc_lb_v1
+  - grpclb/grpc_lb_v1/messages
   - grpclog
   - internal
   - keepalive
@@ -123,6 +131,6 @@ testImports:
   subpackages:
   - difflib
 - name: github.com/stretchr/testify
-  version: f6abca593680b2315d2075e0f5e2a9751e3f431a
+  version: 890a5c3458b43e6104ff5da8dfa139d013d77544
   subpackages:
   - assert
