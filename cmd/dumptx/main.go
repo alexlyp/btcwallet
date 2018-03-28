@@ -110,15 +110,15 @@ func printTx(accts map[uint32]string, tx *pb.TransactionDetails, date int64) {
 		log.Fatal(err)
 	}
 
-	isTicket, _ := stake.IsSStx(&msgTx); if isTicket {
+	isTicket := stake.IsSStx(&msgTx); if isTicket {
 		fmt.Printf("found ticket %s skipping\n", msgTx.TxHash())
 		return
 	}
-	isVote, _ := stake.IsSSGen(&msgTx); if isVote {
+	isVote := stake.IsSSGen(&msgTx); if isVote {
 		fmt.Printf("found vote %s skipping\n", msgTx.TxHash())
 		return
 	} 
-	isRevoke, _ := stake.IsSSRtx(&msgTx); if isRevoke {
+	isRevoke := stake.IsSSRtx(&msgTx); if isRevoke {
 		fmt.Printf("found revoke %s skipping\n", msgTx.TxHash())
 		return
 	}

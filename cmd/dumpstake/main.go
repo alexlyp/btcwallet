@@ -14,7 +14,7 @@ import (
 
 	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/wire"
-	"github.com/decred/dcrutil"
+	"github.com/decred/dcrd/dcrutil"
 	pb "github.com/decred/dcrwallet/rpc/walletrpc"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
