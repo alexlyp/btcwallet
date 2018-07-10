@@ -57,9 +57,9 @@ import (
 
 // Public API version constants
 const (
-	semverString = "4.39.0"
+	semverString = "4.40.0"
 	semverMajor  = 4
-	semverMinor  = 39
+	semverMinor  = 40
 	semverPatch  = 0
 )
 
@@ -945,14 +945,15 @@ func (s *walletServer) GetAccountExtendedKey(ctx context.Context, req *pb.GetAcc
 	// If no account is passed, we provide the extended public key
 	// for the default account number.
 	account := uint32(udb.DefaultAccountNum)
-	if len(req.Account) != 0 {
-		var err error
-		account, err = s.wallet.AccountNumber(req.Account)
-		if err != nil {
-			return nil, translateError(err)
+	/*
+		if req.Account != 0 {
+			var err error
+			account, err = s.wallet.AccountNumber(req.Account)
+			if err != nil {
+				return nil, translateError(err)
+			}
 		}
-	}
-
+	*/
 	accExtendedKey, err := s.wallet.MasterPubKey(account)
 	if err != nil {
 		return nil, err

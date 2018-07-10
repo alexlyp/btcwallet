@@ -929,7 +929,7 @@ message CommittedTicketsRequest {
 }
 
 message GetAccountExtendedKeyRequest {
-	string Account = 1;
+	uint32 Account = 1;
 }
 
 message GetAccountExtendedKeyResponse {
