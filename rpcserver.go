@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	xcontext "golang.org/x/net/context"
-
 	"github.com/decred/dcrd/certgen"
 	"github.com/decred/dcrwallet/errors"
 	"github.com/decred/dcrwallet/loader"
