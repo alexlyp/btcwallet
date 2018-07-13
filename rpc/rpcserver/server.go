@@ -22,6 +22,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +32,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/decred/dcrd/addrmgr"
 	"github.com/decred/dcrd/blockchain/stake"
 	"github.com/decred/dcrd/chaincfg"
 	"github.com/decred/dcrd/chaincfg/chainhash"
@@ -46,7 +49,9 @@ import (
 	"github.com/decred/dcrwallet/internal/zero"
 	"github.com/decred/dcrwallet/loader"
 	"github.com/decred/dcrwallet/netparams"
+	"github.com/decred/dcrwallet/p2p"
 	pb "github.com/decred/dcrwallet/rpc/walletrpc"
+	"github.com/decred/dcrwallet/spv"
 	"github.com/decred/dcrwallet/ticketbuyer"
 	"github.com/decred/dcrwallet/wallet"
 	"github.com/decred/dcrwallet/wallet/txauthor"
@@ -168,6 +173,7 @@ type loaderServer struct {
 	ready     uint32 // atomic
 	loader    *loader.Loader
 	activeNet *netparams.Params
+	appData   string
 	rpcClient *chain.RPCClient
 	mu        sync.Mutex
 }
@@ -371,12 +377,29 @@ func (s *walletServer) Rescan(req *pb.RescanRequest, svr pb.WalletService_Rescan
 		return err
 	}
 
-	if req.BeginHeight < 0 {
+	var blockID *wallet.BlockIdentifier
+	switch {
+	case req.BeginHash != nil && req.BeginHeight != 0:
+		return status.Errorf(codes.InvalidArgument, "begin hash and height must not be set together")
+	case req.BeginHeight < 0:
 		return status.Errorf(codes.InvalidArgument, "begin height must be non-negative")
+	case req.BeginHash != nil:
+		blockHash, err := chainhash.NewHash(req.BeginHash)
+		if err != nil {
+			return status.Errorf(codes.InvalidArgument, "block hash has invalid length")
+		}
+		blockID = wallet.NewBlockIdentifierFromHash(blockHash)
+	default:
+		blockID = wallet.NewBlockIdentifierFromHeight(req.BeginHeight)
+	}
+
+	b, err := s.wallet.BlockInfo(blockID)
+	if err != nil {
+		return translateError(err)
 	}
 
 	progress := make(chan wallet.RescanProgress, 1)
-	go s.wallet.RescanProgressFromHeight(svr.Context(), n, req.BeginHeight, progress)
+	go s.wallet.RescanProgressFromHeight(svr.Context(), n, b.Height, progress)
 
 	for p := range progress {
 		if p.Err != nil {
@@ -1072,14 +1095,6 @@ func (s *walletServer) GetTransactions(req *pb.GetTransactionsRequest,
 
 func (s *walletServer) GetTickets(req *pb.GetTicketsRequest,
 	server pb.WalletService_GetTicketsServer) error {
-	n, err := s.requireNetworkBackend()
-	if err != nil {
-		return err
-	}
-	chainClient, err := chain.RPCClientFromBackend(n)
-	if err != nil {
-		return translateError(err)
-	}
 
 	var startBlock, endBlock *wallet.BlockIdentifier
 	if req.StartingBlockHash != nil && req.StartingBlockHeight != 0 {
@@ -1142,7 +1157,7 @@ func (s *walletServer) GetTickets(req *pb.GetTicketsRequest,
 		}
 	}
 
-	err = s.wallet.GetTickets(rangeFn, chainClient, startBlock, endBlock)
+	err := s.wallet.GetTickets(rangeFn, startBlock, endBlock)
 	if err != nil {
 		return translateError(err)
 	}
@@ -1984,9 +1999,10 @@ func (s *walletServer) ConfirmationNotifications(svr pb.WalletService_Confirmati
 }
 
 // StartWalletLoaderService starts the WalletLoaderService.
-func StartWalletLoaderService(server *grpc.Server, loader *loader.Loader, activeNet *netparams.Params) {
+func StartWalletLoaderService(server *grpc.Server, loader *loader.Loader, activeNet *netparams.Params, appData string) {
 	loaderService.loader = loader
 	loaderService.activeNet = activeNet
+	loaderService.appData = appData
 	if atomic.SwapUint32(&loaderService.ready, 1) != 0 {
 		panic("service already started")
 	}
@@ -2285,16 +2301,112 @@ func (s *loaderServer) DiscoverAddresses(ctx context.Context, req *pb.DiscoverAd
 			return nil, translateError(err)
 		}
 	}
-
 	n := chain.BackendFromRPCClient(chainClient.Client)
-	err := wallet.DiscoverActiveAddresses(ctx, n, wallet.ChainParams().GenesisHash, req.DiscoverAccounts)
+	startHash := wallet.ChainParams().GenesisHash
+	var err error
+	if req.StartingBlockHash != nil {
+		startHash, err = chainhash.NewHash(req.StartingBlockHash)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "Invalid starting block hash provided: %v", err)
+		}
+	}
+	err = wallet.DiscoverActiveAddresses(ctx, n, startHash, req.DiscoverAccounts)
 	if err != nil {
 		return nil, translateError(err)
 	}
 
 	return &pb.DiscoverAddressesResponse{}, nil
 }
+func (s *loaderServer) FetchMissingCFilters(ctx context.Context, req *pb.FetchMissingCFiltersRequest) (
+	*pb.FetchMissingCFiltersResponse, error) {
 
+	wallet, ok := s.loader.LoadedWallet()
+	if !ok {
+		return nil, status.Errorf(codes.FailedPrecondition, "Wallet has not been loaded")
+	}
+
+	n := chain.BackendFromRPCClient(s.rpcClient.Client)
+	// Fetch any missing main chain compact filters.
+	err := wallet.FetchMissingCFilters(ctx, n)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.FetchMissingCFiltersResponse{}, nil
+}
+func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderService_SpvSyncServer) error {
+
+	wallet, ok := s.loader.LoadedWallet()
+	if !ok {
+		return status.Errorf(codes.FailedPrecondition, "Wallet has not been loaded")
+	}
+
+	if req.DiscoverAccounts && len(req.PrivatePassphrase) == 0 {
+		return status.Errorf(codes.InvalidArgument, "private passphrase is required for discovering accounts")
+	}
+
+	if req.DiscoverAccounts {
+		lock := make(chan time.Time, 1)
+		defer func() {
+			lock <- time.Time{}
+			zero.Bytes(req.PrivatePassphrase)
+		}()
+		err := wallet.Unlock(req.PrivatePassphrase, lock)
+		if err != nil {
+			return translateError(err)
+		}
+	}
+
+	addr := &net.TCPAddr{IP: net.ParseIP("::1"), Port: 0}
+	amgrDir := filepath.Join(s.appData, wallet.ChainParams().Name)
+	amgr := addrmgr.New(amgrDir, net.LookupIP) // TODO: be mindful of tor
+	lp := p2p.NewLocalPeer(wallet.ChainParams(), addr, amgr)
+
+	ntfns := &spv.NtfnsCallbacks{
+		SyncUpdated: func(sync bool, tipHeight int32) {
+			resp := &pb.SpvSyncResponse{Synced: sync, SyncedHeight: tipHeight}
+			err := svr.Send(resp)
+			if err != nil {
+				log.Debugf("SpvSync Updated response failed to send: %v", err)
+			}
+		},
+	}
+	syncer := spv.NewSyncer(wallet, lp, ntfns)
+	if len(req.SpvConnect) > 0 {
+		spvConnect, err := cfgutil.NormalizeAddress(req.SpvConnect, s.activeNet.Params.DefaultPort)
+		if err != nil {
+			return status.Errorf(codes.FailedPrecondition, "SPV Connect address invalid: %v", err)
+		}
+		spvConnects := make([]string, 1)
+		spvConnects[0] = spvConnect
+		syncer.SetPersistantPeers(spvConnects)
+	}
+	wallet.SetNetworkBackend(syncer)
+	s.loader.SetNetworkBackend(syncer)
+
+	err := syncer.Run(svr.Context())
+	if err != nil {
+		return status.Errorf(codes.FailedPrecondition, "SPV synchronization ended: %v", err)
+	}
+	return status.Errorf(codes.Canceled, "SPV synchronization canceled or ended without error.")
+}
+func (s *loaderServer) RescanPoint(ctx context.Context, req *pb.RescanPointRequest) (*pb.RescanPointResponse, error) {
+	wallet, ok := s.loader.LoadedWallet()
+	if !ok {
+		return nil, status.Errorf(codes.FailedPrecondition, "Wallet has not been loaded")
+	}
+	rescanPoint, err := wallet.RescanPoint()
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "Rescan point failed to be requested %v", err)
+	}
+	if rescanPoint != nil {
+		return &pb.RescanPointResponse{
+			RescanPointHash: rescanPoint[:],
+		}, nil
+	} else {
+		return &pb.RescanPointResponse{RescanPointHash: nil}, nil
+	}
+}
 func (s *loaderServer) SubscribeToBlockNotifications(ctx context.Context, req *pb.SubscribeToBlockNotificationsRequest) (
 	*pb.SubscribeToBlockNotificationsResponse, error) {
 
@@ -2322,7 +2434,9 @@ func (s *loaderServer) SubscribeToBlockNotifications(ctx context.Context, req *p
 	// control over how long the synchronization task runs.
 	syncer := chain.NewRPCSyncer(wallet, chainClient)
 	go syncer.Run(context.Background(), false)
-	wallet.SetNetworkBackend(chain.BackendFromRPCClient(chainClient.Client))
+
+	n := chain.BackendFromRPCClient(chainClient.Client)
+	wallet.SetNetworkBackend(n)
 
 	return &pb.SubscribeToBlockNotificationsResponse{}, nil
 }
@@ -2783,13 +2897,13 @@ func marshalDecodedTxInputs(mtx *wire.MsgTx) []*pb.DecodedTransaction_Input {
 		inputs[i] = &pb.DecodedTransaction_Input{
 			PreviousTransactionHash:  txIn.PreviousOutPoint.Hash[:],
 			PreviousTransactionIndex: txIn.PreviousOutPoint.Index,
-			Tree:                     pb.DecodedTransaction_Input_TreeType(txIn.PreviousOutPoint.Tree),
-			Sequence:                 txIn.Sequence,
-			AmountIn:                 txIn.ValueIn,
-			BlockHeight:              txIn.BlockHeight,
-			BlockIndex:               txIn.BlockIndex,
-			SignatureScript:          txIn.SignatureScript,
-			SignatureScriptAsm:       disbuf,
+			Tree:               pb.DecodedTransaction_Input_TreeType(txIn.PreviousOutPoint.Tree),
+			Sequence:           txIn.Sequence,
+			AmountIn:           txIn.ValueIn,
+			BlockHeight:        txIn.BlockHeight,
+			BlockIndex:         txIn.BlockIndex,
+			SignatureScript:    txIn.SignatureScript,
+			SignatureScriptAsm: disbuf,
 		}
 	}
 
