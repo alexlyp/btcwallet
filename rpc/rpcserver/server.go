@@ -22,6 +22,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +32,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/decred/dcrd/addrmgr"
 	"github.com/decred/dcrd/blockchain/stake"
 	"github.com/decred/dcrd/chaincfg"
 	"github.com/decred/dcrd/chaincfg/chainhash"
@@ -46,7 +49,9 @@ import (
 	"github.com/decred/dcrwallet/internal/zero"
 	"github.com/decred/dcrwallet/loader"
 	"github.com/decred/dcrwallet/netparams"
+	"github.com/decred/dcrwallet/p2p"
 	pb "github.com/decred/dcrwallet/rpc/walletrpc"
+	"github.com/decred/dcrwallet/spv"
 	"github.com/decred/dcrwallet/ticketbuyer"
 	"github.com/decred/dcrwallet/wallet"
 	"github.com/decred/dcrwallet/wallet/txauthor"
@@ -168,6 +173,7 @@ type loaderServer struct {
 	ready     uint32 // atomic
 	loader    *loader.Loader
 	activeNet *netparams.Params
+	appData   string
 	rpcClient *chain.RPCClient
 	mu        sync.Mutex
 }
@@ -1973,9 +1979,10 @@ func (s *walletServer) ConfirmationNotifications(svr pb.WalletService_Confirmati
 }
 
 // StartWalletLoaderService starts the WalletLoaderService.
-func StartWalletLoaderService(server *grpc.Server, loader *loader.Loader, activeNet *netparams.Params) {
+func StartWalletLoaderService(server *grpc.Server, loader *loader.Loader, activeNet *netparams.Params, appData string) {
 	loaderService.loader = loader
 	loaderService.activeNet = activeNet
+	loaderService.appData = appData
 	if atomic.SwapUint32(&loaderService.ready, 1) != 0 {
 		panic("service already started")
 	}
@@ -2283,7 +2290,34 @@ func (s *loaderServer) DiscoverAddresses(ctx context.Context, req *pb.DiscoverAd
 
 	return &pb.DiscoverAddressesResponse{}, nil
 }
+func (s *loaderServer) SpvSync(ctx context.Context, req *pb.SpvSyncRequest) (*pb.SpvSyncResponse, error) {
 
+	wallet, ok := s.loader.LoadedWallet()
+	if !ok {
+		return nil, status.Errorf(codes.FailedPrecondition, "Wallet has not been loaded")
+	}
+
+	addr := &net.TCPAddr{IP: net.ParseIP("::1"), Port: 0}
+	amgrDir := filepath.Join(s.appData, wallet.ChainParams().Name)
+	amgr := addrmgr.New(amgrDir, net.LookupIP) // TODO: be mindful of tor
+	lp := p2p.NewLocalPeer(wallet.ChainParams(), addr, amgr)
+	syncer := spv.NewSyncer(wallet, lp)
+	wallet.SetNetworkBackend(syncer)
+	s.loader.SetNetworkBackend(syncer)
+	var err error
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, status.Errorf(codes.Canceled, "SPV synchronization ended: %v", err)
+		default:
+			err := syncer.Run(ctx)
+			if err != nil {
+				return nil, status.Errorf(codes.FailedPrecondition, "SPV synchronization ended: %v", err)
+			}
+			return &pb.SpvSyncResponse{}, nil
+		}
+	}
+}
 func (s *loaderServer) SubscribeToBlockNotifications(ctx context.Context, req *pb.SubscribeToBlockNotificationsRequest) (
 	*pb.SubscribeToBlockNotificationsResponse, error) {
 

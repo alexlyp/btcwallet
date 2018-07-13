@@ -71,6 +71,7 @@ service WalletLoaderService {
 	rpc DiscoverAddresses (DiscoverAddressesRequest) returns (DiscoverAddressesResponse);
 	rpc SubscribeToBlockNotifications (SubscribeToBlockNotificationsRequest) returns (SubscribeToBlockNotificationsResponse);
 	rpc FetchHeaders(FetchHeadersRequest) returns (FetchHeadersResponse);
+	rpc SpvSync(SpvSyncRequest) returns (SpvSyncResponse);
 }
 
 service TicketBuyerService {
@@ -672,6 +673,9 @@ message FetchHeadersResponse {
 	bytes main_chain_tip_block_hash = 4;
 	int32 main_chain_tip_block_height = 5;
 }
+
+message SpvSyncRequest {}
+message SpvSyncResponse {}
 
 message GenerateRandomSeedRequest {
 	uint32 seed_length = 1;

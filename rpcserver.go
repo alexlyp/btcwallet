@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	xcontext "golang.org/x/net/context"
+
 	"github.com/decred/dcrd/certgen"
 	"github.com/decred/dcrwallet/errors"
 	"github.com/decred/dcrwallet/loader"
@@ -152,7 +154,7 @@ func startRPCServers(walletLoader *loader.Loader) (*grpc.Server, *legacyrpc.Serv
 				grpc.UnaryInterceptor(interceptUnary),
 			)
 			rpcserver.RegisterServices(server)
-			rpcserver.StartWalletLoaderService(server, walletLoader, activeNet)
+			rpcserver.StartWalletLoaderService(server, walletLoader, activeNet, cfg.AppDataDir.Value)
 			rpcserver.StartTicketBuyerService(server, walletLoader, &cfg.tbCfg)
 			rpcserver.StartAgendaService(server, activeNet.Params)
 			rpcserver.StartDecodeMessageService(server, activeNet.Params)
