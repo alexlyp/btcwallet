@@ -178,6 +178,7 @@ func (l *Loader) CreateWatchingOnlyWallet(extendedPubKey string, pubPass []byte)
 		AllowHighFees:       l.allowHighFees,
 		RelayFee:            l.relayFee,
 		Params:              l.chainParams,
+		AccountGapLimit:     l.accountGapLimit,
 	}
 	w, err = wallet.Open(cfg)
 	if err != nil {
@@ -268,6 +269,7 @@ func (l *Loader) CreateNewWallet(pubPassphrase, privPassphrase, seed []byte) (w 
 		AllowHighFees:       l.allowHighFees,
 		RelayFee:            l.relayFee,
 		Params:              l.chainParams,
+		AccountGapLimit:     l.accountGapLimit,
 	}
 	w, err = wallet.Open(cfg)
 	if err != nil {
