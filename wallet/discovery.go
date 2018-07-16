@@ -17,6 +17,7 @@ import (
 	"github.com/decred/dcrd/txscript"
 	"github.com/decred/dcrd/wire"
 	"github.com/decred/dcrwallet/errors"
+	"github.com/decred/dcrwallet/validate"
 	"github.com/decred/dcrwallet/wallet/internal/walletdb"
 	"github.com/decred/dcrwallet/wallet/udb"
 	"golang.org/x/sync/errgroup"
@@ -302,7 +303,8 @@ func (a *addrFinder) filter(ctx context.Context, fs []*udb.BlockCFilter, data bl
 		}
 		g.Go(func() error {
 			var fetch []*chainhash.Hash
-			for _, f := range fs {
+			var fetchidx []int
+			for i, f := range fs {
 				if f.Filter.N() == 0 {
 					continue
 				}
@@ -314,6 +316,7 @@ func (a *addrFinder) filter(ctx context.Context, fs []*udb.BlockCFilter, data bl
 				}
 				if f.Filter.MatchAny(blockcf.Key(&f.BlockHash), data) {
 					fetch = append(fetch, &f.BlockHash)
+					fetchidx = append(fetchidx, i)
 				}
 			}
 			if len(fetch) == 0 {
@@ -323,10 +326,19 @@ func (a *addrFinder) filter(ctx context.Context, fs []*udb.BlockCFilter, data bl
 			if err != nil {
 				return err
 			}
-			// TODO: validate blocks
 			for i, b := range blocks {
 				i, b := i, b
 				g.Go(func() error {
+					// validate blocks
+					err := validate.MerkleRoots(b)
+					if err != nil {
+						return err
+					}
+					err = validate.RegularCFilter(b, fs[fetchidx[i]].Filter)
+					if err != nil {
+						return err
+					}
+
 					c := blockCommitments(b)
 					a.mu.Lock()
 					a.commitments[*fetch[i]] = c
