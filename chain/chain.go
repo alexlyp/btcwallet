@@ -6,6 +6,7 @@
 package chain
 
 import (
+	"bytes"
 	"context"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/decred/dcrd/chaincfg"
 	"github.com/decred/dcrd/chaincfg/chainhash"
 	dcrrpcclient "github.com/decred/dcrd/rpcclient"
+	"github.com/decred/dcrd/wire"
 	"github.com/decred/dcrwallet/errors"
 )
 
@@ -180,7 +182,7 @@ type (
 	// relevantTxAccepted is a notification that a transaction accepted by
 	// mempool passed the client's transaction filter.
 	relevantTxAccepted struct {
-		transaction []byte
+		transaction *wire.MsgTx
 	}
 
 	// reorganization is a notification that a reorg has happen with the new
@@ -251,9 +253,15 @@ func (c *RPCClient) onBlockDisconnected(header []byte) {
 }
 
 func (c *RPCClient) onRelevantTxAccepted(transaction []byte) {
+	msgTx := new(wire.MsgTx)
+	err := msgTx.Deserialize(bytes.NewReader(transaction))
+	if err != nil {
+		log.Errorf("Failed to deserialize announced transaction: %v", err)
+		return
+	}
 	select {
 	case c.enqueueNotification <- relevantTxAccepted{
-		transaction: transaction,
+		transaction: msgTx,
 	}:
 	case <-c.quit:
 	}

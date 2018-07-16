@@ -36,7 +36,7 @@ import (
 	"github.com/decred/dcrd/dcrec"
 	"github.com/decred/dcrd/dcrutil"
 	"github.com/decred/dcrd/hdkeychain"
-	dcrrpcclient "github.com/decred/dcrd/rpcclient"
+	"github.com/decred/dcrd/rpcclient"
 	"github.com/decred/dcrd/txscript"
 	"github.com/decred/dcrd/wire"
 	"github.com/decred/dcrwallet/chain"
@@ -624,8 +624,16 @@ func (s *walletServer) Balance(ctx context.Context, req *pb.BalanceRequest) (
 	return resp, nil
 }
 
-func (s *walletServer) TicketPrice(ctx context.Context,
-	req *pb.TicketPriceRequest) (*pb.TicketPriceResponse, error) {
+func (s *walletServer) TicketPrice(ctx context.Context, req *pb.TicketPriceRequest) (*pb.TicketPriceResponse, error) {
+	sdiff, err := s.wallet.NextStakeDifficulty()
+	if err == nil {
+		_, tipHeight := s.wallet.MainChainTip()
+		resp := &pb.TicketPriceResponse{
+			TicketPrice: int64(sdiff),
+			Height:      tipHeight,
+		}
+		return resp, nil
+	}
 
 	n, err := s.requireNetworkBackend()
 	if err != nil {
@@ -636,7 +644,7 @@ func (s *walletServer) TicketPrice(ctx context.Context,
 		return nil, translateError(err)
 	}
 
-	ticketPrice, err := s.wallet.StakeDifficulty()
+	ticketPrice, err := n.StakeDifficulty(ctx)
 	if err != nil {
 		return nil, translateError(err)
 	}
@@ -652,19 +660,22 @@ func (s *walletServer) TicketPrice(ctx context.Context,
 }
 
 func (s *walletServer) StakeInfo(ctx context.Context, req *pb.StakeInfoRequest) (*pb.StakeInfoResponse, error) {
-	n, err := s.requireNetworkBackend()
-	if err != nil {
-		return nil, err
+	var chainClient *rpcclient.Client
+	if n, err := s.wallet.NetworkBackend(); err == nil {
+		client, err := chain.RPCClientFromBackend(n)
+		if err == nil {
+			chainClient = client
+		}
 	}
-	chainClient, err := chain.RPCClientFromBackend(n)
+	var si *wallet.StakeInfoData
+	var err error
+	if chainClient != nil {
+		si, err = s.wallet.StakeInfoPrecise(chainClient)
+	} else {
+		si, err = s.wallet.StakeInfo()
+	}
 	if err != nil {
 		return nil, translateError(err)
-	}
-
-	si, err := s.wallet.StakeInfo(chainClient)
-	if err != nil {
-		return nil, status.Errorf(codes.FailedPrecondition,
-			"Failed to query stake info: %s", err.Error())
 	}
 
 	return &pb.StakeInfoResponse{
@@ -1444,10 +1455,6 @@ func (s *walletServer) RevokeTickets(ctx context.Context, req *pb.RevokeTicketsR
 	if err != nil {
 		return nil, err
 	}
-	chainClient, err := chain.RPCClientFromBackend(n)
-	if err != nil {
-		return nil, translateError(err)
-	}
 
 	lock := make(chan time.Time, 1)
 	defer func() {
@@ -1456,6 +1463,20 @@ func (s *walletServer) RevokeTickets(ctx context.Context, req *pb.RevokeTicketsR
 	err = s.wallet.Unlock(req.Passphrase, lock)
 	if err != nil {
 		return nil, translateError(err)
+	}
+
+	// The wallet is not locally aware of when tickets are selected to vote and
+	// when they are missed.  RevokeTickets uses trusted RPCs to determine which
+	// tickets were missed.  RevokeExpiredTickets is only able to create
+	// revocations for tickets which have reached their expiry time even if they
+	// were missed prior to expiry, but is able to be used with other backends.
+	chainClient, err := chain.RPCClientFromBackend(n)
+	if err != nil {
+		err := s.wallet.RevokeExpiredTickets(ctx, n)
+		if err != nil {
+			return nil, translateError(err)
+		}
+		return &pb.RevokeTicketsResponse{}, nil
 	}
 
 	err = s.wallet.RevokeTickets(chainClient)
@@ -1473,7 +1494,7 @@ func (s *walletServer) LoadActiveDataFilters(ctx context.Context, req *pb.LoadAc
 		return nil, err
 	}
 
-	err = s.wallet.LoadActiveDataFilters(n)
+	err = s.wallet.LoadActiveDataFilters(ctx, n, false)
 	if err != nil {
 		return nil, translateError(err)
 	}
@@ -2209,7 +2230,7 @@ func (s *loaderServer) StartConsensusRpc(ctx context.Context, req *pb.StartConse
 
 	err = rpcClient.Start(ctx, false)
 	if err != nil {
-		if err == dcrrpcclient.ErrInvalidAuth {
+		if err == rpcclient.ErrInvalidAuth {
 			return nil, status.Errorf(codes.InvalidArgument,
 				"Invalid RPC credentials: %v", err)
 		}
@@ -2218,7 +2239,7 @@ func (s *loaderServer) StartConsensusRpc(ctx context.Context, req *pb.StartConse
 	}
 
 	s.rpcClient = rpcClient
-	s.loader.SetChainClient(rpcClient.Client)
+	s.loader.SetNetworkBackend(chain.BackendFromRPCClient(rpcClient.Client))
 
 	return &pb.StartConsensusRpcResponse{}, nil
 }
@@ -2255,7 +2276,7 @@ func (s *loaderServer) DiscoverAddresses(ctx context.Context, req *pb.DiscoverAd
 	}
 
 	n := chain.BackendFromRPCClient(chainClient.Client)
-	err := wallet.DiscoverActiveAddresses(n, req.DiscoverAccounts)
+	err := wallet.DiscoverActiveAddresses(ctx, n, wallet.ChainParams().GenesisHash, req.DiscoverAccounts)
 	if err != nil {
 		return nil, translateError(err)
 	}
@@ -2312,7 +2333,7 @@ func (s *loaderServer) FetchHeaders(ctx context.Context, req *pb.FetchHeadersReq
 	n := chain.BackendFromRPCClient(chainClient.Client)
 
 	fetchedHeaderCount, rescanFrom, rescanFromHeight,
-		mainChainTipBlockHash, mainChainTipBlockHeight, err := wallet.FetchHeaders(n)
+		mainChainTipBlockHash, mainChainTipBlockHeight, err := wallet.FetchHeaders(ctx, n)
 	if err != nil {
 		return nil, translateError(err)
 	}

@@ -5,6 +5,7 @@
 package wallet
 
 import (
+	"context"
 	"encoding/hex"
 	"time"
 
@@ -377,7 +378,7 @@ func (w *Wallet) RevokeTickets(chainClient *dcrrpcclient.Client) error {
 		err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
 			// Could be more efficient by avoiding processTransaction, as we
 			// know it is a revocation.
-			err = w.processTransaction(dbtx, rec, nil, nil)
+			err = w.processTransactionRecord(dbtx, rec, nil, nil)
 			if err != nil {
 				return errors.E(op, err)
 			}
@@ -392,4 +393,109 @@ func (w *Wallet) RevokeTickets(chainClient *dcrrpcclient.Client) error {
 	}
 
 	return nil
+}
+
+// RevokeExpiredTickets revokes any unspent tickets that cannot be live due to
+// being past expiry.  It is similar to RevokeTickets but is able to be used
+// with any Peer implementation as it will not query the consensus RPC server
+// for missed tickets.
+func (w *Wallet) RevokeExpiredTickets(ctx context.Context, p Peer) (err error) {
+	const opf = "wallet.RevokeExpiredTickets(%v)"
+	defer func() {
+		if err != nil {
+			op := errors.Opf(opf, p)
+			err = errors.E(op, err)
+		}
+	}()
+
+	expiryConfs := int32(w.chainParams.TicketExpiry) +
+		int32(w.chainParams.TicketMaturity) + 1
+
+	var expired []chainhash.Hash
+	err = walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
+		ns := dbtx.ReadBucket(wtxmgrNamespaceKey)
+		_, tipHeight := w.TxStore.MainChainTip(ns)
+
+		it := w.TxStore.IterateTickets(dbtx)
+		for it.Next() {
+			// Spent tickets are excluded
+			if it.SpenderHash != (chainhash.Hash{}) {
+				continue
+			}
+
+			// Include ticket hash when it has reached expiry confirmations.
+			if confirmed(expiryConfs, it.Block.Height, tipHeight) {
+				expired = append(expired, it.TxRecord.Hash)
+			}
+		}
+		return it.Err()
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(expired) == 0 {
+		return nil
+	}
+
+	feePerKb := w.RelayFee()
+	revocations := make([]*wire.MsgTx, 0, len(expired))
+	err = walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
+		for i := range expired {
+			ticketHash := &expired[i]
+			addrmgrNs := dbtx.ReadBucket(waddrmgrNamespaceKey)
+			txmgrNs := dbtx.ReadBucket(wtxmgrNamespaceKey)
+			ticketPurchase, err := w.TxStore.Tx(txmgrNs, ticketHash)
+			if err != nil {
+				return err
+			}
+
+			// Don't create revocations when this wallet doesn't have voting
+			// authority.
+			owned, err := w.hasVotingAuthority(addrmgrNs, ticketPurchase)
+			if err != nil {
+				return err
+			}
+			if !owned {
+				continue
+			}
+
+			revocation, err := createUnsignedRevocation(ticketHash,
+				ticketPurchase, feePerKb)
+			if err != nil {
+				return err
+			}
+			err = w.signRevocation(addrmgrNs, ticketPurchase, revocation)
+			if err != nil {
+				return err
+			}
+			revocations = append(revocations, revocation)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
+		for i, revocation := range revocations {
+			rec, err := udb.NewTxRecordFromMsgTx(revocation, time.Now())
+			if err != nil {
+				return err
+			}
+
+			log.Infof("Revoking ticket %v with revocation %v", &expired[i],
+				&rec.Hash)
+
+			err = w.processTransactionRecord(dbtx, rec, nil, nil)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return p.PublishTransactions(ctx, revocations...)
 }
