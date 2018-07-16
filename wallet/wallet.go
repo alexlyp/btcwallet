@@ -932,7 +932,7 @@ func (w *Wallet) blockLocators(dbtx walletdb.ReadTx, sidechain []*BlockNode) ([]
 	return locators, nil
 }
 
-func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (commonAncestor chainhash.Hash, err error) {
+func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (firstNew chainhash.Hash, err error) {
 	var blockLocators []*chainhash.Hash
 	err = walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
 		var err error
@@ -940,7 +940,7 @@ func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (common
 		return err
 	})
 	if err != nil {
-		return commonAncestor, err
+		return firstNew, err
 	}
 
 	// Fetch and process headers until no more are returned.
@@ -950,7 +950,7 @@ func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (common
 
 		headers, err := p.GetHeaders(ctx, blockLocators, &hashStop)
 		if err != nil {
-			return commonAncestor, err
+			return firstNew, err
 		}
 		headerHashes := make([]*chainhash.Hash, 0, len(headers))
 		for _, h := range headers {
@@ -959,11 +959,11 @@ func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (common
 		}
 		filters, err := p.GetCFilters(ctx, headerHashes)
 		if err != nil {
-			return commonAncestor, err
+			return firstNew, err
 		}
 
 		if len(headers) == 0 {
-			return commonAncestor, nil
+			return firstNew, err
 		}
 
 		for i := range headers {
@@ -972,7 +972,7 @@ func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (common
 
 		headerData, err := createHeaderData(headers)
 		if err != nil {
-			return commonAncestor, err
+			return firstNew, err
 		}
 		log.Debugf("First header: block %v", &headerData[0].BlockHash)
 
@@ -993,11 +993,11 @@ func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (common
 				return err
 			}
 
-			if commonAncestor == (chainhash.Hash{}) {
-				commonAncestor = *chain[0].Hash
+			if firstNew == (chainhash.Hash{}) {
+				firstNew = *chain[0].Hash
 				tip, _ := w.TxStore.MainChainTip(ns)
-				if commonAncestor != tip {
-					err := w.TxStore.Rollback(ns, addrmgrNs, int32(chain[0].Header.Height)+1)
+				if chain[0].Header.PrevBlock != tip {
+					err := w.TxStore.Rollback(ns, addrmgrNs, int32(chain[0].Header.Height))
 					if err != nil {
 						return err
 					}
@@ -1013,7 +1013,7 @@ func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (common
 			return err
 		})
 		if brk || err != nil {
-			return commonAncestor, err
+			return firstNew, err
 		}
 		log.Infof("Fetched %v header(s) from %s", len(headers), p)
 	}
@@ -1027,32 +1027,28 @@ func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (common
 func (w *Wallet) FetchHeaders(ctx context.Context, p Peer) (count int, rescanFrom chainhash.Hash, rescanFromHeight int32, mainChainTipBlockHash chainhash.Hash, mainChainTipBlockHeight int32, err error) {
 	const op errors.Op = "wallet.FetchHeaders"
 
-	commonAncestor, err := w.fetchHeaders(ctx, op, p)
+	rescanFrom, err = w.fetchHeaders(ctx, op, p)
 	if err != nil {
 		err = errors.E(op, err)
 		return
 	}
+	return
+
 	err = walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
 		ns := dbtx.ReadBucket(wtxmgrNamespaceKey)
 		var err error
 
 		mainChainTipBlockHash, mainChainTipBlockHeight = w.TxStore.MainChainTip(ns)
 		var ancestorHeight int32
-		if commonAncestor != (chainhash.Hash{}) {
-			ancestorHeader, err := w.TxStore.GetSerializedBlockHeader(ns, &commonAncestor)
+		if firstNew != (chainhash.Hash{}) {
+			firstHeader, err := w.TxStore.GetSerializedBlockHeader(ns, &firstNew)
 			if err != nil {
 				return err
 			}
-			ancestorHeight = udb.ExtractBlockHeaderHeight(ancestorHeader)
-			count = int(mainChainTipBlockHeight - ancestorHeight)
+			rescanFromHeight = int32(firstHeader.Height)
+			count = int(mainChainTipBlockHeight - rescanFromHeight + 1)
 		}
-
-		if count != 0 {
-			rescanFromHeight = ancestorHeight + 1
-			rescanFrom, err = w.TxStore.GetMainChainBlockHashForHeight(
-				ns, rescanFromHeight)
-		}
-		return err
+		return nil
 	})
 	if err != nil {
 		err = errors.E(op, err)
