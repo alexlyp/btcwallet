@@ -1032,16 +1032,13 @@ func (w *Wallet) FetchHeaders(ctx context.Context, p Peer) (count int, rescanFro
 		err = errors.E(op, err)
 		return
 	}
-	return
 
 	err = walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
 		ns := dbtx.ReadBucket(wtxmgrNamespaceKey)
-		var err error
 
 		mainChainTipBlockHash, mainChainTipBlockHeight = w.TxStore.MainChainTip(ns)
-		var ancestorHeight int32
-		if firstNew != (chainhash.Hash{}) {
-			firstHeader, err := w.TxStore.GetSerializedBlockHeader(ns, &firstNew)
+		if rescanFrom != (chainhash.Hash{}) {
+			firstHeader, err := w.TxStore.GetBlockHeader(dbtx, &rescanFrom)
 			if err != nil {
 				return err
 			}
