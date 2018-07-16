@@ -978,6 +978,8 @@ func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (common
 
 		var brk bool
 		err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
+			ns := dbtx.ReadWriteBucket(wtxmgrNamespaceKey)
+			addrmgrNs := dbtx.ReadWriteBucket(waddrmgrNamespaceKey)
 			chain, err := w.EvaluateBestChain(&chainBuilder)
 			if err != nil {
 				return err
@@ -991,22 +993,22 @@ func (w *Wallet) fetchHeaders(ctx context.Context, op errors.Op, p Peer) (common
 				return err
 			}
 
-			// TODO: reorg out and determine common ancestor, see w.ChainSwitch
+			if commonAncestor == (chainhash.Hash{}) {
+				commonAncestor = *chain[0].Hash
+				tip, _ := w.TxStore.MainChainTip(ns)
+				if commonAncestor != tip {
+					err := w.TxStore.Rollback(ns, addrmgrNs, int32(chain[0].Header.Height)+1)
+					if err != nil {
+						return err
+					}
+				}
+			}
 			for _, n := range chain {
 				err = w.extendMainChain("", dbtx, n.Header, n.Filter, nil)
 				if err != nil {
 					return err
 				}
 			}
-
-			// ca, err := w.TxStore.InsertMainChainHeaders(txmgrNs, addrmgrNs,
-			// 	headerData, filters)
-			// if err != nil {
-			// 	return err
-			// }
-			// if commonAncestor == (chainhash.Hash{}) {
-			// 	commonAncestor = ca
-			// }
 			blockLocators, err = w.blockLocators(dbtx, nil)
 			return err
 		})
