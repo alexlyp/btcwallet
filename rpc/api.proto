@@ -71,6 +71,7 @@ service WalletLoaderService {
 	rpc DiscoverAddresses (DiscoverAddressesRequest) returns (DiscoverAddressesResponse);
 	rpc SubscribeToBlockNotifications (SubscribeToBlockNotificationsRequest) returns (SubscribeToBlockNotificationsResponse);
 	rpc FetchHeaders(FetchHeadersRequest) returns (FetchHeadersResponse);
+	rpc FetchMissingCFilters(FetchMissingCFiltersRequest) returns (FetchMissingCFiltersResponse);
 	rpc SpvSync(SpvSyncRequest) returns (SpvSyncResponse);
 }
 
@@ -661,6 +662,9 @@ message DiscoverAddressesRequest {
 	bytes private_passphrase = 2;
 }
 message DiscoverAddressesResponse {}
+
+message FetchMissingCFiltersRequest {}
+message FetchMissingCFiltersResponse {}
 
 message SubscribeToBlockNotificationsRequest {}
 message SubscribeToBlockNotificationsResponse {}

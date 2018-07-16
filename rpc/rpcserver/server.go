@@ -2290,6 +2290,25 @@ func (s *loaderServer) DiscoverAddresses(ctx context.Context, req *pb.DiscoverAd
 
 	return &pb.DiscoverAddressesResponse{}, nil
 }
+func (s *loaderServer) FetchMissingCFilters(ctx context.Context, req *pb.FetchMissingCFiltersRequest) (
+	*pb.FetchMissingCFiltersResponse, error) {
+
+	wallet, ok := s.loader.LoadedWallet()
+	if !ok {
+		return nil, status.Errorf(codes.FailedPrecondition, "Wallet has not been loaded")
+	}
+
+	n := chain.BackendFromRPCClient(s.rpcClient.Client)
+	fmt.Println("fetching")
+	// Fetch any missing main chain compact filters.
+	err := wallet.FetchMissingCFilters(ctx, n)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println("fetching done")
+
+	return &pb.FetchMissingCFiltersResponse{}, nil
+}
 func (s *loaderServer) SpvSync(ctx context.Context, req *pb.SpvSyncRequest) (*pb.SpvSyncResponse, error) {
 
 	wallet, ok := s.loader.LoadedWallet()
@@ -2345,7 +2364,9 @@ func (s *loaderServer) SubscribeToBlockNotifications(ctx context.Context, req *p
 	// control over how long the synchronization task runs.
 	syncer := chain.NewRPCSyncer(wallet, chainClient)
 	go syncer.Run(context.Background(), false)
-	wallet.SetNetworkBackend(chain.BackendFromRPCClient(chainClient.Client))
+
+	n := chain.BackendFromRPCClient(chainClient.Client)
+	wallet.SetNetworkBackend(n)
 
 	return &pb.SubscribeToBlockNotificationsResponse{}, nil
 }
