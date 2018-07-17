@@ -1008,7 +1008,7 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 				return err
 			}
 			if rescanPoint == nil {
-				return nil
+				return s.wallet.LoadActiveDataFilters(ctx, s, true)
 			}
 			err = s.wallet.DiscoverActiveAddresses(ctx, rp, rescanPoint, s.discoverAccounts)
 			if err != nil {
