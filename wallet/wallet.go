@@ -2130,10 +2130,8 @@ func (w *Wallet) ListTransactions(from, count int) ([]dcrjson.ListTransactionsRe
 	}
 
 	// reverse the list so that it is sorted from old to new.
-	for i, j := 0, len(txList)-1; i < j; {
+	for i, j := 0, len(txList)-1; i < j; i, j = i+1, j-1 {
 		txList[i], txList[j] = txList[j], txList[i]
-		i++
-		j--
 	}
 	return txList, nil
 }
@@ -2229,10 +2227,8 @@ func (w *Wallet) ListAllTransactions() ([]dcrjson.ListTransactionsResult, error)
 	}
 
 	// reverse the list so that it is sorted from old to new.
-	for i, j := 0, len(txList)-1; i < j; {
+	for i, j := 0, len(txList)-1; i < j; i, j = i+1, j-1 {
 		txList[i], txList[j] = txList[j], txList[i]
-		i++
-		j--
 	}
 	return txList, nil
 }
