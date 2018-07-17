@@ -73,6 +73,7 @@ service WalletLoaderService {
 	rpc FetchHeaders(FetchHeadersRequest) returns (FetchHeadersResponse);
 	rpc FetchMissingCFilters(FetchMissingCFiltersRequest) returns (FetchMissingCFiltersResponse);
 	rpc SpvSync(SpvSyncRequest) returns (SpvSyncResponse);
+	rpc RescanPoint(RescanPointRequest) returns (RescanPointResponse);
 }
 
 service TicketBuyerService {
@@ -680,6 +681,11 @@ message FetchHeadersResponse {
 
 message SpvSyncRequest {}
 message SpvSyncResponse {}
+
+message RescanPointRequest {}
+message RescanPointResponse {
+	bytes resan_point_hash = 1;
+}
 
 message GenerateRandomSeedRequest {
 	uint32 seed_length = 1;

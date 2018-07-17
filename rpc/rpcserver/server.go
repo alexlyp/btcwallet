@@ -2329,6 +2329,19 @@ func (s *loaderServer) SpvSync(ctx context.Context, req *pb.SpvSyncRequest) (*pb
 	}
 	return &pb.SpvSyncResponse{}, nil
 }
+func (s *loaderServer) RescanPoint(ctx context.Context, req *pb.RescanPointRequest) (*pb.RescanPointResponse, error) {
+	wallet, ok := s.loader.LoadedWallet()
+	if !ok {
+		return nil, status.Errorf(codes.FailedPrecondition, "Wallet has not been loaded")
+	}
+	rescanPoint, err := wallet.RescanPoint()
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "Rescan point failed to be requested %v", err)
+	}
+	return &pb.RescanPointResponse{
+		ResanPointHash: rescanPoint[:],
+	}, nil
+}
 func (s *loaderServer) SubscribeToBlockNotifications(ctx context.Context, req *pb.SubscribeToBlockNotificationsRequest) (
 	*pb.SubscribeToBlockNotificationsResponse, error) {
 
