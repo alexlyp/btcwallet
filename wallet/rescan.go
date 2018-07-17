@@ -158,11 +158,41 @@ func (f *RescanFilter) RemoveUnspentOutPoint(op *wire.OutPoint) {
 	delete(f.unspent, *op)
 }
 
-// RescannedBlock models the relevant data returned during a rescan from a
-// single block.
-type RescannedBlock struct {
-	BlockHash    chainhash.Hash
-	Transactions []*wire.MsgTx
+// RescanSaver records transactions from a rescaned block.
+type RescanSaver interface {
+	SaveRescanned(hash *chainhash.Hash, txs []*wire.MsgTx) error
+}
+
+// SaveRescanned records transactions from a rescanned block.
+func (w *Wallet) SaveRescanned(hash *chainhash.Hash, txs []*wire.MsgTx) error {
+	const op errors.Op = "wallet.SaveRescanned"
+	err := walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
+		txmgrNs := dbtx.ReadWriteBucket(wtxmgrNamespaceKey)
+		blockMeta, err := w.TxStore.GetBlockMetaForHash(txmgrNs, hash)
+		if err != nil {
+			return err
+		}
+		header, err := w.TxStore.GetBlockHeader(dbtx, hash)
+		if err != nil {
+			return err
+		}
+
+		for _, tx := range txs {
+			rec, err := udb.NewTxRecordFromMsgTx(tx, time.Now())
+			if err != nil {
+				return err
+			}
+			err = w.processTransactionRecord(dbtx, rec, header, &blockMeta)
+			if err != nil {
+				return err
+			}
+		}
+		return w.TxStore.UpdateProcessedTxsBlockMarker(dbtx, hash)
+	})
+	if err != nil {
+		return errors.E(op, err)
+	}
+	return nil
 }
 
 // rescan synchronously scans over all blocks on the main chain starting at
@@ -207,40 +237,9 @@ func (w *Wallet) rescan(ctx context.Context, n NetworkBackend,
 			}
 		}
 		log.Infof("Rescanning block range [%v, %v]...", height, through)
-		rescanResults, err := n.Rescan(ctx, rescanBlocks)
+		err = n.Rescan(ctx, rescanBlocks, w)
 		if err != nil {
 			return err
-		}
-		for _, r := range rescanResults {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
-				txmgrNs := dbtx.ReadWriteBucket(wtxmgrNamespaceKey)
-				blockMeta, err := w.TxStore.GetBlockMetaForHash(txmgrNs, &r.BlockHash)
-				if err != nil {
-					return err
-				}
-				header, err := w.TxStore.GetBlockHeader(dbtx, &r.BlockHash)
-				if err != nil {
-					return err
-				}
-
-				for _, tx := range r.Transactions {
-					rec, err := udb.NewTxRecordFromMsgTx(tx, time.Now())
-					if err != nil {
-						return err
-					}
-					err = w.processTransactionRecord(dbtx, rec, header, &blockMeta)
-					if err != nil {
-						return err
-					}
-				}
-				return w.TxStore.UpdateProcessedTxsBlockMarker(dbtx, &r.BlockHash)
-			})
-			if err != nil {
-				return err
-			}
 		}
 		err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
 			return w.TxStore.UpdateProcessedTxsBlockMarker(dbtx, &rescanBlocks[len(rescanBlocks)-1])

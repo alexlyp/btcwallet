@@ -126,21 +126,19 @@ func (s *Syncer) PublishTransactions(ctx context.Context, txs ...*wire.MsgTx) er
 }
 
 // Rescan implements the Rescan method of the wallet.NetworkBackend interface.
-func (s *Syncer) Rescan(ctx context.Context, blockHashes []chainhash.Hash) ([]*wallet.RescannedBlock, error) {
+func (s *Syncer) Rescan(ctx context.Context, blockHashes []chainhash.Hash, r wallet.RescanSaver) error {
 	const op errors.Op = "spv.Rescan"
 
 	cfilters := make([]*gcs.Filter, 0, len(blockHashes))
 	for i := 0; i < len(blockHashes); i++ {
 		f, err := s.wallet.CFilter(&blockHashes[i])
 		if err != nil {
-			return nil, err
+			return err
 		}
 		cfilters = append(cfilters, f)
 	}
 
 	blockMatches := make([]*wire.MsgBlock, len(blockHashes)) // Block assigned to slice once fetched
-
-	var results []*wallet.RescannedBlock
 
 	// Read current filter data.  filterData is reassinged to new data matches
 	// for subsequent filter checks, which improves filter matching performance
@@ -195,7 +193,7 @@ FilterLoop:
 					var err error
 					rp, err = s.pickRemote(pickAny)
 					if err != nil {
-						return nil, err
+						return err
 					}
 				}
 
@@ -240,12 +238,16 @@ FilterLoop:
 				continue
 			}
 
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+
 			matchedTxs, fadded := s.rescanBlock(b)
 			if len(matchedTxs) != 0 {
-				results = append(results, &wallet.RescannedBlock{
-					BlockHash:    blockHashes[i],
-					Transactions: matchedTxs,
-				})
+				err := r.SaveRescanned(&blockHashes[i], matchedTxs)
+				if err != nil {
+					return err
+				}
 
 				// Check for more matched blocks using updated filters,
 				// starting at the next block.
@@ -256,10 +258,10 @@ FilterLoop:
 				}
 			}
 		}
-		return results, nil
+		return nil
 	}
 
-	return results, nil
+	return nil
 }
 
 // StakeDifficulty implements the StakeDifficulty method of the

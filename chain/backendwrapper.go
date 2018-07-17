@@ -141,35 +141,33 @@ func (b *rpcBackend) PublishTransactions(ctx context.Context, txs ...*wire.MsgTx
 	return nil
 }
 
-func (b *rpcBackend) Rescan(ctx context.Context, blocks []chainhash.Hash) ([]*wallet.RescannedBlock, error) {
+func (b *rpcBackend) Rescan(ctx context.Context, blocks []chainhash.Hash, r wallet.RescanSaver) error {
 	const op errors.Op = "dcrd.jsonrpc.rescan"
 
-	r, err := b.rpcClient.Rescan(blocks)
+	res, err := b.rpcClient.Rescan(blocks)
 	if err != nil {
-		return nil, errors.E(op, err)
+		return errors.E(op, err)
 	}
-	discoveredData := make([]*wallet.RescannedBlock, 0, len(r.DiscoveredData))
-	for _, d := range r.DiscoveredData {
+	for _, d := range res.DiscoveredData {
 		blockHash, err := chainhash.NewHashFromStr(d.Hash)
 		if err != nil {
-			return nil, errors.E(op, errors.Encoding, err)
+			return errors.E(op, errors.Encoding, err)
 		}
 		txs := make([]*wire.MsgTx, 0, len(d.Transactions))
 		for _, txHex := range d.Transactions {
 			tx := new(wire.MsgTx)
 			err := tx.Deserialize(newHexReader(txHex))
 			if err != nil {
-				return nil, errors.E(op, errors.Encoding, err)
+				return errors.E(op, errors.Encoding, err)
 			}
 			txs = append(txs, tx)
 		}
-		rescannedBlock := &wallet.RescannedBlock{
-			BlockHash:    *blockHash,
-			Transactions: txs,
+		err = r.SaveRescanned(blockHash, txs)
+		if err != nil {
+			return err
 		}
-		discoveredData = append(discoveredData, rescannedBlock)
 	}
-	return discoveredData, nil
+	return nil
 }
 
 func (b *rpcBackend) StakeDifficulty(ctx context.Context) (dcrutil.Amount, error) {

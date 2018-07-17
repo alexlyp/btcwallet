@@ -32,7 +32,7 @@ type Peer interface {
 type NetworkBackend interface {
 	Peer
 	LoadTxFilter(ctx context.Context, reload bool, addrs []dcrutil.Address, outpoints []wire.OutPoint) error
-	Rescan(ctx context.Context, blocks []chainhash.Hash) ([]*RescannedBlock, error)
+	Rescan(ctx context.Context, blocks []chainhash.Hash, r RescanSaver) error
 
 	// This is impossible to determine over the wire protocol, and will always
 	// error.  Use Wallet.NextStakeDifficulty to calculate the next ticket price

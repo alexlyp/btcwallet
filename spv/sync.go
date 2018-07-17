@@ -7,6 +7,7 @@ package spv
 import (
 	"context"
 	"net"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -584,70 +585,114 @@ func (s *Syncer) receiveHeadersAnnouncements(ctx context.Context) error {
 	}
 }
 
-// fetchMatchingTxs checks full blocks for any matching cfilter of a
-// recently-announced block and returns a map of relevant wallet transactions
-// keyed by block hash.  bmap is queried for the block first with fallback to
-// querying rp using getdata.
-func (s *Syncer) fetchMatchingTxs(ctx context.Context, rp *p2p.RemotePeer, chain []*wallet.BlockNode,
+// scanChain checks for matching filters of chain and returns a map of
+// relevant wallet transactions keyed by block hash.  bmap is queried
+// for the block first with fallback to querying rp using getdata.
+func (s *Syncer) scanChain(ctx context.Context, rp *p2p.RemotePeer, chain []*wallet.BlockNode,
 	bmap map[chainhash.Hash]*wire.MsgBlock) (map[chainhash.Hash][]*wire.MsgTx, error) {
-	// Discover which blocks may possibly hold relevant transactions
-	matchingBlocks := make([]*chainhash.Hash, 0, len(chain))
-	matchingIndexes := make([]int, 0, len(chain))
+
+	found := make(map[chainhash.Hash][]*wire.MsgTx)
+
 	s.filterMu.Lock()
-	for i, n := range chain {
-		if n.Filter.N() != 0 && n.Filter.MatchAny(blockcf.Key(n.Hash), s.filterData) {
-			matchingBlocks = append(matchingBlocks, n.Hash)
-			matchingIndexes = append(matchingIndexes, i)
-		}
-	}
+	filterData := s.filterData
 	s.filterMu.Unlock()
 
-	fetchedBlocks := make([]*wire.MsgBlock, len(matchingBlocks))
+	fetched := make([]*wire.MsgBlock, len(chain))
+	if bmap != nil {
+		for i := range chain {
+			if b, ok := bmap[*chain[i].Hash]; ok {
+				fetched[i] = b
+			}
+		}
+	}
 
-	g, ctx := errgroup.WithContext(ctx)
-	for i := range matchingBlocks {
-		i := i
-		hash := matchingBlocks[i]
-		g.Go(func() error {
-			b, ok := bmap[*hash]
-			if !ok {
-				var err error
-				b, err = rp.GetBlock(ctx, hash)
-				if err != nil {
-					return err
+	idx := 0
+FilterLoop:
+	for idx < len(chain) {
+		var fmatches []*chainhash.Hash
+		var fmatchidx []int
+		var fmatchMu sync.Mutex
+
+		// Scan remaining filters with up to ncpu workers
+		c := make(chan int)
+		var wg sync.WaitGroup
+		worker := func() {
+			for i := range c {
+				n := chain[i]
+				f := n.Filter
+				k := blockcf.Key(n.Hash)
+				if f.N() != 0 && f.MatchAny(k, filterData) {
+					fmatchMu.Lock()
+					fmatches = append(fmatches, n.Hash)
+					fmatchidx = append(fmatchidx, i)
+					fmatchMu.Unlock()
 				}
 			}
-
-			// Perform context-free validation on the block.  Disconnect
-			// peer if this validation fails.
-			err := validate.MerkleRoots(b)
-			if err != nil {
-				rp.Disconnect(err)
-				return err
+			wg.Done()
+		}
+		nworkers := 0
+		for i := idx; i < len(chain); i++ {
+			if fetched[i] != nil {
+				continue // Already have block
 			}
-			err = validate.RegularCFilter(b, chain[matchingIndexes[i]].Filter)
-			if err != nil {
-				rp.Disconnect(err)
-				return err
+			select {
+			case c <- i:
+			default:
+				if nworkers < runtime.NumCPU() {
+					nworkers++
+					wg.Add(1)
+					go worker()
+				}
+				c <- i
 			}
+		}
+		close(c)
+		wg.Wait()
 
-			// Record the fetched block
-			fetchedBlocks[i] = b
-			return nil
-		})
-	}
-	err := g.Wait()
-	if err != nil {
-		return nil, err
-	}
+		if len(fmatches) != 0 {
+			blocks, err := rp.GetBlocks(ctx, fmatches)
+			if err != nil {
+				return nil, err
+			}
+			for j, b := range blocks {
+				i := fmatchidx[j]
 
-	matchingTxs := make(map[chainhash.Hash][]*wire.MsgTx)
-	for i, hash := range matchingBlocks {
-		b := fetchedBlocks[i]
-		matchingTxs[*hash], _ = s.rescanBlock(b)
-	}
+				// Perform context-free validation on the block.
+				// Disconnect peer when invalid.
+				err := validate.MerkleRoots(b)
+				if err != nil {
+					rp.Disconnect(err)
+					return nil, err
+				}
+				err = validate.RegularCFilter(b, chain[i].Filter)
+				if err != nil {
+					rp.Disconnect(err)
+					return nil, err
+				}
 
-	return matchingTxs, nil
+				fetched[i] = b
+			}
+		}
+
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		for i := idx; i < len(chain); i++ {
+			b := fetched[i]
+			if b == nil {
+				continue
+			}
+			matches, fadded := s.rescanBlock(b)
+			found[*chain[i].Hash] = matches
+			if len(fadded) != 0 {
+				filterData = fadded
+				continue FilterLoop
+			}
+		}
+		return found, nil
+	}
+	return found, nil
 }
 
 // handleBlockAnnouncements handles blocks announced through block invs or
@@ -722,7 +767,7 @@ func (s *Syncer) handleBlockAnnouncements(ctx context.Context, rp *p2p.RemotePee
 			return err
 		}
 		if rpt == nil {
-			matchingTxs, err = s.fetchMatchingTxs(ctx, rp, bestChain, bmap)
+			matchingTxs, err = s.scanChain(ctx, rp, bestChain, bmap)
 			if err != nil {
 				return err
 			}
