@@ -2299,13 +2299,11 @@ func (s *loaderServer) FetchMissingCFilters(ctx context.Context, req *pb.FetchMi
 	}
 
 	n := chain.BackendFromRPCClient(s.rpcClient.Client)
-	fmt.Println("fetching")
 	// Fetch any missing main chain compact filters.
 	err := wallet.FetchMissingCFilters(ctx, n)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("fetching done")
 
 	return &pb.FetchMissingCFiltersResponse{}, nil
 }
