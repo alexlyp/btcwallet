@@ -2350,7 +2350,7 @@ func (s *loaderServer) RescanPoint(ctx context.Context, req *pb.RescanPointReque
 			RescanPointHash: rescanPoint[:],
 		}, nil
 	} else {
-		return &pb.RescanPointResponse{ResanPointHash: nil}, nil
+		return &pb.RescanPointResponse{RescanPointHash: nil}, nil
 	}
 }
 func (s *loaderServer) SubscribeToBlockNotifications(ctx context.Context, req *pb.SubscribeToBlockNotificationsRequest) (
