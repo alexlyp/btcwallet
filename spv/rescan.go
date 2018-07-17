@@ -95,10 +95,9 @@ func (s *Syncer) rescanBlock(block *wire.MsgBlock) (matches []*wire.MsgTx, fadde
 	return matches, fadded
 }
 
-// relevantInventoriedTxs returns all transactions which are considered relevant
-// to the wallet.  The filters are not modified with new outputs as done when
-// scanning a block for relevant transactions.
-func (s *Syncer) relevantInventoriedTx(txs []*wire.MsgTx) []*wire.MsgTx {
+// filterRelevant filters out all transactions considered irrelevant
+// without updating filters.
+func (s *Syncer) filterRelevant(txs []*wire.MsgTx) []*wire.MsgTx {
 	defer s.filterMu.Unlock()
 	s.filterMu.Lock()
 

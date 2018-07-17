@@ -73,12 +73,12 @@ func (w *Wallet) LiveTicketHashes(chainClient *dcrrpcclient.Client, includeImmat
 
 		// Remove tickets from the extraTickets slice if they will appear in the
 		// ticket iteration below.
-		etx := extraTickets
-		extraTickets = etx[:0]
-		for i := range etx {
-			tx := &etx[i]
-			if w.TxStore.ExistsTx(txmgrNs, tx) {
-				extraTickets = append(extraTickets, tx)
+		hashes := extraTickets
+		extraTickets = hashes[:0]
+		for i := range hashes {
+			h := &hashes[i]
+			if w.TxStore.ExistsTx(txmgrNs, h) {
+				extraTickets = append(extraTickets, *h)
 			}
 		}
 
@@ -199,8 +199,7 @@ func (w *Wallet) TicketHashesForVotingAddress(votingAddr dcrutil.Address) ([]cha
 		stakemgrNs := tx.ReadBucket(wstakemgrNamespaceKey)
 		txmgrNs := tx.ReadBucket(wtxmgrNamespaceKey)
 
-		var err error
-		dump, err = w.StakeMgr.DumpSStxHashesForAddress(
+		dump, err := w.StakeMgr.DumpSStxHashesForAddress(
 			stakemgrNs, votingAddr)
 		if err != nil {
 			return err
@@ -211,7 +210,7 @@ func (w *Wallet) TicketHashesForVotingAddress(votingAddr dcrutil.Address) ([]cha
 		for i := range dump {
 			h := &dump[i]
 			if w.TxStore.ExistsTx(txmgrNs, h) {
-				ticketHashes = append(ticketHashes, h)
+				ticketHashes = append(ticketHashes, *h)
 			}
 		}
 

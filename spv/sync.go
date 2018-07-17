@@ -546,15 +546,11 @@ func (s *Syncer) handleTxInvs(ctx context.Context, rp *p2p.RemotePeer, hashes []
 	}
 
 	// Save any relevant transaction.
-	relevantTxs := s.relevantInventoriedTx(txs)
-	for _, tx := range relevantTxs {
+	for _, tx := range s.filterRelevant(txs) {
 		err := s.wallet.AcceptMempoolTx(tx)
 		if err != nil {
-			if ctx.Err() == nil {
-				op := errors.Opf(opf, rp.RemoteAddr())
-				err := errors.E(op, err)
-				log.Warn(err)
-			}
+			op := errors.Opf(opf, rp.RemoteAddr())
+			log.Warn(errors.E(op, err))
 		}
 	}
 }
