@@ -39,7 +39,9 @@ type Syncer struct {
 	wallet *wallet.Wallet
 	lp     *p2p.LocalPeer
 
-	discoverAccounts bool // Protected by atomicCatchUpTryLock
+	// Protected by atomicCatchUpTryLock
+	discoverAccounts bool
+	loadedFilters    bool
 
 	persistantPeers []string
 
@@ -1008,16 +1010,25 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 				return err
 			}
 			if rescanPoint == nil {
-				return s.wallet.LoadActiveDataFilters(ctx, s, true)
+				if !s.loadedFilters {
+					err = s.wallet.LoadActiveDataFilters(ctx, s, true)
+					if err != nil {
+						return err
+					}
+					s.loadedFilters = true
+				}
+				return nil
 			}
 			err = s.wallet.DiscoverActiveAddresses(ctx, rp, rescanPoint, s.discoverAccounts)
 			if err != nil {
 				return err
 			}
+			s.discoverAccounts = false
 			err = s.wallet.LoadActiveDataFilters(ctx, s, true)
 			if err != nil {
 				return err
 			}
+			s.loadedFilters = true
 			return s.wallet.Rescan(ctx, s, rescanPoint)
 		}()
 		if err != nil {
