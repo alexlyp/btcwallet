@@ -2281,9 +2281,16 @@ func (s *loaderServer) DiscoverAddresses(ctx context.Context, req *pb.DiscoverAd
 			return nil, translateError(err)
 		}
 	}
-
 	n := chain.BackendFromRPCClient(chainClient.Client)
-	err := wallet.DiscoverActiveAddresses(ctx, n, wallet.ChainParams().GenesisHash, req.DiscoverAccounts)
+	startHash := wallet.ChainParams().GenesisHash
+	var err error
+	if req.StartingBlockHash != nil {
+		startHash, err = chainhash.NewHash(req.StartingBlockHash)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "Invalid starting block hash provided: %v", err)
+		}
+	}
+	err = wallet.DiscoverActiveAddresses(ctx, n, startHash, req.DiscoverAccounts)
 	if err != nil {
 		return nil, translateError(err)
 	}

@@ -661,6 +661,7 @@ message StartConsensusRpcResponse {}
 message DiscoverAddressesRequest {
 	bool discover_accounts = 1;
 	bytes private_passphrase = 2;
+	bytes starting_block_hash = 3;
 }
 message DiscoverAddressesResponse {}
 
