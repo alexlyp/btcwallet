@@ -706,7 +706,6 @@ func hasExpiryFixedUpgrade(tx walletdb.ReadWriteTx, publicPassphrase []byte, par
 	return unifiedDBMetadata{}.putVersion(metadataBucket, newVersion)
 }
 
-// Assert this function is only called on version 7 databases.
 func cfUpgrade(tx walletdb.ReadWriteTx, publicPassphrase []byte, params *chaincfg.Params) error {
 	const oldVersion = 9
 	const newVersion = 10
