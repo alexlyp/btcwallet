@@ -510,7 +510,7 @@ func (s *Syncer) handleTxInvs(ctx context.Context, rp *p2p.RemotePeer, hashes []
 	// Ignore already-processed transactions
 	unseen := hashes[:0]
 	for _, h := range hashes {
-		if s.seenTxs.Contains(*h) {
+		if !s.seenTxs.Contains(*h) {
 			unseen = append(unseen, h)
 		}
 	}
