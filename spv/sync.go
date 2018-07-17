@@ -981,7 +981,6 @@ func (s *Syncer) getHeaders(ctx context.Context, rp *p2p.RemotePeer) error {
 	}
 }
 
-// startupSync syncs the wallet with rp, first by
 func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 	// Disconnect from the peer if their advertised block height is
 	// significantly behind the wallet's.

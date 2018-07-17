@@ -949,7 +949,7 @@ func (rp *RemotePeer) GetBlock(ctx context.Context, blockHash *chainhash.Hash) (
 	for {
 		select {
 		case <-ctx.Done():
-			rp.deleteRequestedBlock(blockHash)
+			defer rp.deleteRequestedBlock(blockHash)
 			if ctx.Err() == context.DeadlineExceeded {
 				op := errors.Opf(opf, rp.raddr, blockHash)
 				err := errors.E(op, errors.IO, "peer appears stalled")
@@ -1000,12 +1000,12 @@ func (rp *RemotePeer) GetBlocks(ctx context.Context, blockHashes []*chainhash.Ha
 		}
 		return nil, ctx.Err()
 	case <-stalled.C:
-		for _, h := range blockHashes {
-			rp.deleteRequestedBlock(h)
-		}
 		op := errors.Opf(opf, rp.raddr)
 		err := errors.E(op, errors.IO, "peer appears stalled")
 		rp.Disconnect(err)
+		for _, h := range blockHashes {
+			rp.deleteRequestedBlock(h)
+		}
 		return nil, err
 	case <-rp.errc:
 		return nil, rp.err
@@ -1085,9 +1085,11 @@ func (rp *RemotePeer) GetTransactions(ctx context.Context, hashes []*chainhash.H
 	for i := 0; i < len(hashes); i++ {
 		select {
 		case <-ctx.Done():
-			for _, h := range hashes[i:] {
-				rp.deleteRequestedTx(h)
-			}
+			defer func() {
+				for _, h := range hashes[i:] {
+					rp.deleteRequestedTx(h)
+				}
+			}()
 			if ctx.Err() == context.DeadlineExceeded {
 				op := errors.Opf(opf, rp.raddr)
 				err := errors.E(op, errors.IO, "peer appears stalled")
@@ -1125,7 +1127,7 @@ func (rp *RemotePeer) GetCFilter(ctx context.Context, blockHash *chainhash.Hash)
 	for {
 		select {
 		case <-ctx.Done():
-			rp.deleteRequestedCFilter(blockHash)
+			defer rp.deleteRequestedCFilter(blockHash)
 			if ctx.Err() == context.DeadlineExceeded {
 				op := errors.Opf(opf, rp.raddr, blockHash)
 				err := errors.E(op, errors.IO, "peer appears stalled")
@@ -1254,7 +1256,7 @@ func (rp *RemotePeer) GetHeaders(ctx context.Context, blockLocators []*chainhash
 	for {
 		select {
 		case <-ctx.Done():
-			rp.deleteRequestedHeaders()
+			defer rp.deleteRequestedHeaders()
 			if ctx.Err() == context.DeadlineExceeded {
 				op := errors.Opf(opf, rp.raddr)
 				err := errors.E(op, errors.IO, "peer appears stalled")
