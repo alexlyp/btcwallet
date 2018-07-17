@@ -2319,21 +2319,15 @@ func (s *loaderServer) SpvSync(ctx context.Context, req *pb.SpvSyncRequest) (*pb
 	amgr := addrmgr.New(amgrDir, net.LookupIP) // TODO: be mindful of tor
 	lp := p2p.NewLocalPeer(wallet.ChainParams(), addr, amgr)
 	syncer := spv.NewSyncer(wallet, lp)
+
 	wallet.SetNetworkBackend(syncer)
 	s.loader.SetNetworkBackend(syncer)
-	var err error
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, status.Errorf(codes.Canceled, "SPV synchronization ended: %v", err)
-		default:
-			err := syncer.Run(ctx)
-			if err != nil {
-				return nil, status.Errorf(codes.FailedPrecondition, "SPV synchronization ended: %v", err)
-			}
-			return &pb.SpvSyncResponse{}, nil
-		}
+
+	err := syncer.Run(ctx)
+	if err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "SPV synchronization ended: %v", err)
 	}
+	return &pb.SpvSyncResponse{}, nil
 }
 func (s *loaderServer) SubscribeToBlockNotifications(ctx context.Context, req *pb.SubscribeToBlockNotificationsRequest) (
 	*pb.SubscribeToBlockNotificationsResponse, error) {
