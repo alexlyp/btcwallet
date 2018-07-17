@@ -33,7 +33,7 @@ const reqSvcs = wire.SFNodeNetwork | wire.SFNodeCF
 // protocol using Simplified Payment Verification (SPV) with compact filters.
 type Syncer struct {
 	// atomics
-	atomicCatchUpTryLock uint32 // CAS (entered=1) to call s.wallet.CatchUpToHeaders
+	atomicCatchUpTryLock uint32 // CAS (entered=1) to perform discovery/rescan
 
 	wallet *wallet.Wallet
 	lp     *p2p.LocalPeer

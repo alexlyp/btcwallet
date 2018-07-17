@@ -1197,7 +1197,8 @@ func (rp *RemotePeer) SendHeaders(ctx context.Context) error {
 	// blocks to be announced by pushing headers messages.
 	if rp.pver < wire.SendHeadersVersion {
 		op := errors.Opf(opf, rp.raddr)
-		return errors.E(op, errors.Protocol, errors.Errorf("protocol version %v is too low to receive block header announcements", rp.pver))
+		err := errors.Errorf("protocol version %v is too low to receive block header announcements", rp.pver)
+		return errors.E(op, errors.Protocol, err)
 	}
 
 	rp.requestedHeadersMu.Lock()
