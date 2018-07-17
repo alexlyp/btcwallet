@@ -33,11 +33,13 @@ func pickAny(*p2p.RemotePeer) bool { return true }
 // GetBlocks implements the GetBlocks method of the wallet.Peer interface.
 func (s *Syncer) GetBlocks(ctx context.Context, blockHashes []*chainhash.Hash) ([]*wire.MsgBlock, error) {
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		rp, err := s.pickRemote(pickAny)
 		if err != nil {
 			return nil, err
 		}
-
 		blocks, err := rp.GetBlocks(ctx, blockHashes)
 		if err != nil {
 			continue
@@ -49,6 +51,9 @@ func (s *Syncer) GetBlocks(ctx context.Context, blockHashes []*chainhash.Hash) (
 // GetCFilters implements the GetCFilters method of the wallet.Peer interface.
 func (s *Syncer) GetCFilters(ctx context.Context, blockHashes []*chainhash.Hash) ([]*gcs.Filter, error) {
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		rp, err := s.pickRemote(pickAny)
 		if err != nil {
 			return nil, err
@@ -64,6 +69,9 @@ func (s *Syncer) GetCFilters(ctx context.Context, blockHashes []*chainhash.Hash)
 // GetHeaders implements the GetHeaders method of the wallet.Peer interface.
 func (s *Syncer) GetHeaders(ctx context.Context, blockLocators []*chainhash.Hash, hashStop *chainhash.Hash) ([]*wire.BlockHeader, error) {
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		rp, err := s.pickRemote(pickAny)
 		if err != nil {
 			return nil, err
