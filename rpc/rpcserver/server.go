@@ -2345,9 +2345,13 @@ func (s *loaderServer) RescanPoint(ctx context.Context, req *pb.RescanPointReque
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "Rescan point failed to be requested %v", err)
 	}
-	return &pb.RescanPointResponse{
-		ResanPointHash: rescanPoint[:],
-	}, nil
+	if rescanPoint != nil {
+		return &pb.RescanPointResponse{
+			RescanPointHash: rescanPoint[:],
+		}, nil
+	} else {
+		return &pb.RescanPointResponse{ResanPointHash: nil}, nil
+	}
 }
 func (s *loaderServer) SubscribeToBlockNotifications(ctx context.Context, req *pb.SubscribeToBlockNotificationsRequest) (
 	*pb.SubscribeToBlockNotificationsResponse, error) {

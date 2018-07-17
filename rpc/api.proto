@@ -685,7 +685,7 @@ message SpvSyncResponse {}
 
 message RescanPointRequest {}
 message RescanPointResponse {
-	bytes resan_point_hash = 1;
+	bytes rescan_point_hash = 1;
 }
 
 message GenerateRandomSeedRequest {
