@@ -3482,7 +3482,7 @@ func walletInfo(s *Server, icmd interface{}) (interface{}, error) {
 	connected := err == nil
 	if connected {
 		chainClient, err := chain.RPCClientFromBackend(n)
-		if err != nil {
+		if err == nil {
 			err := chainClient.Ping()
 			if err != nil {
 				log.Warnf("Ping failed on connected daemon client: %v", err)
