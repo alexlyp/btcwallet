@@ -895,7 +895,7 @@ func (rp *RemotePeer) receivedGetData(ctx context.Context, msg *wire.MsgGetData)
 		return
 	}
 
-	if rp.lp.messageIsMasked(MaskInv) {
+	if rp.lp.messageIsMasked(MaskGetData) {
 		rp.lp.receivedGetData <- newInMsg(rp, msg)
 	}
 }
