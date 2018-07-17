@@ -686,6 +686,7 @@ FilterLoop:
 			matches, fadded := s.rescanBlock(b)
 			found[*chain[i].Hash] = matches
 			if len(fadded) != 0 {
+				idx = i + 1
 				filterData = fadded
 				continue FilterLoop
 			}
