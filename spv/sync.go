@@ -507,30 +507,27 @@ func (s *Syncer) handleTxInvs(ctx context.Context, rp *p2p.RemotePeer, hashes []
 	}
 
 	// Ignore already-processed transactions
-	for i := 0; i < len(hashes); {
-		if s.seenTxs.Contains(*hashes[i]) {
-			hashes[i], hashes[len(hashes)-1] = hashes[len(hashes)-1], hashes[i]
-			hashes[len(hashes)-1] = nil
-			hashes = hashes[:len(hashes)-1]
-			continue
+	unseen := hashes[:0]
+	for _, h := range hashes {
+		if s.seenTxs.Contains(*h) {
+			unseen = append(unseen, h)
 		}
-		i++
 	}
-	if len(hashes) == 0 {
+	if len(unseen) == 0 {
 		return
 	}
 
-	txs, err := rp.GetTransactions(ctx, hashes)
+	txs, err := rp.GetTransactions(ctx, unseen)
 	if errors.Is(errors.NotExist, err) {
 		err = nil
-		for i := 0; i < len(txs); {
-			if txs[i] == nil {
-				// Update hashes and txs to remove notfound tx.
-				hashes[i], hashes[len(hashes)-1] = hashes[len(hashes)-1], nil
-				txs[i], txs[len(txs)-1] = txs[len(txs)-1], nil
-				continue
+		// Remove notfound txs.
+		prevTxs, prevUnseen := txs, unseen
+		txs, unseen = txs[:0], unseen[:0]
+		for i, tx := range prevTxs {
+			if tx != nil {
+				txs = append(txs, tx)
+				unseen = append(unseen, prevUnseen[i])
 			}
-			i++
 		}
 	}
 	if err != nil {
@@ -544,7 +541,7 @@ func (s *Syncer) handleTxInvs(ctx context.Context, rp *p2p.RemotePeer, hashes []
 
 	// Mark transactions as processed so they are not queried from other nodes
 	// who announce them in the future.
-	for _, h := range hashes {
+	for _, h := range unseen {
 		s.seenTxs.Add(*h)
 	}
 

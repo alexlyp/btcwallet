@@ -73,13 +73,13 @@ func (w *Wallet) LiveTicketHashes(chainClient *dcrrpcclient.Client, includeImmat
 
 		// Remove tickets from the extraTickets slice if they will appear in the
 		// ticket iteration below.
-		for i := 0; i < len(extraTickets); {
-			if !w.TxStore.ExistsTx(txmgrNs, &extraTickets[i]) {
-				i++
-				continue
+		etx := extraTickets
+		extraTickets = etx[:0]
+		for i := range etx {
+			tx := &etx[i]
+			if w.TxStore.ExistsTx(txmgrNs, tx) {
+				extraTickets = append(extraTickets, tx)
 			}
-			extraTickets[i] = extraTickets[len(extraTickets)-1]
-			extraTickets = extraTickets[:len(extraTickets)-1]
 		}
 
 		_, tipHeight = w.TxStore.MainChainTip(txmgrNs)
@@ -200,25 +200,19 @@ func (w *Wallet) TicketHashesForVotingAddress(votingAddr dcrutil.Address) ([]cha
 		txmgrNs := tx.ReadBucket(wtxmgrNamespaceKey)
 
 		var err error
-		ticketHashes, err = w.StakeMgr.DumpSStxHashesForAddress(
+		dump, err = w.StakeMgr.DumpSStxHashesForAddress(
 			stakemgrNs, votingAddr)
 		if err != nil {
 			return err
 		}
 
-		// Exclude the hash if the transaction is not saved too.  No
-		// promises of hash order are given (and at time of writing,
-		// they are copies of iterators of a Go map in wstakemgr) so
-		// when one must be removed, replace it with the last and
-		// decrease the len.
-		for i := 0; i < len(ticketHashes); {
-			if w.TxStore.ExistsTx(txmgrNs, &ticketHashes[i]) {
-				i++
-				continue
+		// Exclude hashes for unsaved transactions.
+		ticketHashes = dump[:0]
+		for i := range dump {
+			h := &dump[i]
+			if w.TxStore.ExistsTx(txmgrNs, h) {
+				ticketHashes = append(ticketHashes, h)
 			}
-
-			ticketHashes[i] = ticketHashes[len(ticketHashes)-1]
-			ticketHashes = ticketHashes[:len(ticketHashes)-1]
 		}
 
 		return nil

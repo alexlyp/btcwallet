@@ -102,8 +102,7 @@ func (s *Syncer) relevantInventoriedTx(txs []*wire.MsgTx) []*wire.MsgTx {
 	defer s.filterMu.Unlock()
 	s.filterMu.Lock()
 
-	var matches []*wire.MsgTx
-
+	matches := txs[:0]
 Txs:
 	for _, tx := range txs {
 		for _, in := range tx.TxIn {
