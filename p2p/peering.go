@@ -1044,50 +1044,6 @@ func (rp *RemotePeer) GetBlocks(ctx context.Context, blockHashes []*chainhash.Ha
 // peer, indicated with notfound.
 var ErrNotFound = errors.E(errors.NotExist, "transaction not found")
 
-// GetTransaction requests a transaction from a RemotePeer.  The same
-// transaction can not be requested multiple times concurrently from the same
-// peer.
-func (rp *RemotePeer) GetTransaction(ctx context.Context, hash *chainhash.Hash) (*wire.MsgTx, error) {
-	const opf = "remotepeer(%v).GetTransaction(%v)"
-	ctx, cancel := context.WithTimeout(ctx, stallTimeout)
-	defer cancel()
-
-	m := wire.NewMsgGetDataSizeHint(1)
-	err := m.AddInvVect(wire.NewInvVect(wire.InvTypeTx, hash))
-	if err != nil {
-		op := errors.Opf(opf, rp.raddr, hash)
-		return nil, errors.E(op, err)
-	}
-	c := make(chan *wire.MsgTx, 1)
-	if !rp.addRequestedTx(hash, c) {
-		op := errors.Opf(opf, rp.raddr, hash)
-		return nil, errors.E(op, errors.Invalid, "tx is already being requested from this peer")
-	}
-	out := rp.out
-	for {
-		select {
-		case <-ctx.Done():
-			rp.deleteRequestedTx(hash)
-			if ctx.Err() == context.DeadlineExceeded {
-				op := errors.Opf(opf, rp.raddr, hash)
-				err := errors.E(op, errors.IO, "peer appears stalled")
-				rp.Disconnect(err)
-				return nil, err
-			}
-			return nil, ctx.Err()
-		case <-rp.errc:
-			return nil, rp.err
-		case out <- &msgAck{m, nil}:
-			out = nil
-		case m, ok := <-c:
-			if !ok {
-				return nil, ErrNotFound
-			}
-			return m, nil
-		}
-	}
-}
-
 // GetTransactions requests multiple transactions at a time from a RemotePeer
 // using a single getdata message.  It returns when all of the transactions
 // and/or notfound messages have been received.  The same transaction may not be
