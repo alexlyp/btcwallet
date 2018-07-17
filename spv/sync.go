@@ -604,7 +604,7 @@ func (s *Syncer) fetchMatchingTxs(ctx context.Context, rp *p2p.RemotePeer, chain
 
 	fetchedBlocks := make([]*wire.MsgBlock, len(matchingBlocks))
 
-	g, gctx := errgroup.WithContext(ctx)
+	g, ctx := errgroup.WithContext(ctx)
 	for i := range matchingBlocks {
 		i := i
 		hash := matchingBlocks[i]
@@ -612,7 +612,7 @@ func (s *Syncer) fetchMatchingTxs(ctx context.Context, rp *p2p.RemotePeer, chain
 			b, ok := bmap[*hash]
 			if !ok {
 				var err error
-				b, err = rp.GetBlock(gctx, hash)
+				b, err = rp.GetBlock(ctx, hash)
 				if err != nil {
 					return err
 				}
@@ -828,13 +828,13 @@ func (s *Syncer) getHeaders(ctx context.Context, rp *p2p.RemotePeer) error {
 		lastHeight = int32(headers[len(headers)-1].Height)
 
 		nodes := make([]*wallet.BlockNode, len(headers))
-		g, gctx := errgroup.WithContext(ctx)
+		g, ctx := errgroup.WithContext(ctx)
 		for i := range headers {
 			i := i
 			g.Go(func() error {
 				header := headers[i]
 				hash := header.BlockHash()
-				filter, err := rp.GetCFilter(gctx, &hash)
+				filter, err := rp.GetCFilter(ctx, &hash)
 				if err != nil {
 					return err
 				}
@@ -974,10 +974,10 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 			}
 			return s.wallet.Rescan(ctx, s, rescanPoint)
 		}()
-		atomic.StoreUint32(&s.atomicCatchUpTryLock, 0)
 		if err != nil {
 			return err
 		}
+		atomic.StoreUint32(&s.atomicCatchUpTryLock, 0)
 	}
 
 	unminedTxs, err := s.wallet.UnminedTransactions()
