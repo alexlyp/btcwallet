@@ -72,7 +72,7 @@ service WalletLoaderService {
 	rpc SubscribeToBlockNotifications (SubscribeToBlockNotificationsRequest) returns (SubscribeToBlockNotificationsResponse);
 	rpc FetchHeaders(FetchHeadersRequest) returns (FetchHeadersResponse);
 	rpc FetchMissingCFilters(FetchMissingCFiltersRequest) returns (FetchMissingCFiltersResponse);
-	rpc SpvSync(SpvSyncRequest) returns (SpvSyncResponse);
+	rpc SpvSync(SpvSyncRequest) returns (stream SpvSyncResponse);
 	rpc RescanPoint(RescanPointRequest) returns (RescanPointResponse);
 }
 
@@ -682,7 +682,9 @@ message FetchHeadersResponse {
 }
 
 message SpvSyncRequest {}
-message SpvSyncResponse {}
+message SpvSyncResponse {
+	bool synced = 1;
+}
 
 message RescanPointRequest {}
 message RescanPointResponse {

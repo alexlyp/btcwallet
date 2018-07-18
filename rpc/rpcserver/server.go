@@ -2331,11 +2331,11 @@ func (s *loaderServer) FetchMissingCFilters(ctx context.Context, req *pb.FetchMi
 
 	return &pb.FetchMissingCFiltersResponse{}, nil
 }
-func (s *loaderServer) SpvSync(ctx context.Context, req *pb.SpvSyncRequest) (*pb.SpvSyncResponse, error) {
+func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderService_SpvSyncServer) error {
 
 	wallet, ok := s.loader.LoadedWallet()
 	if !ok {
-		return nil, status.Errorf(codes.FailedPrecondition, "Wallet has not been loaded")
+		return status.Errorf(codes.FailedPrecondition, "Wallet has not been loaded")
 	}
 
 	addr := &net.TCPAddr{IP: net.ParseIP("::1"), Port: 0}
@@ -2347,11 +2347,26 @@ func (s *loaderServer) SpvSync(ctx context.Context, req *pb.SpvSyncRequest) (*pb
 	wallet.SetNetworkBackend(syncer)
 	s.loader.SetNetworkBackend(syncer)
 
-	err := syncer.Run(ctx)
-	if err != nil {
-		return nil, status.Errorf(codes.FailedPrecondition, "SPV synchronization ended: %v", err)
+	synced := false
+	for {
+		select {
+		case <-syncer.Synced:
+			synced = !synced
+			resp := &pb.SpvSyncResponse{Synced: synced}
+			err := svr.Send(resp)
+			if err != nil {
+				return translateError(err)
+			}
+		case <-svr.Context().Done():
+			return status.Errorf(codes.FailedPrecondition, "SPV synchronization canceled")
+		default:
+			err := syncer.Run(svr.Context())
+			if err != nil {
+				return status.Errorf(codes.FailedPrecondition, "SPV synchronization ended: %v", err)
+			}
+		}
 	}
-	return &pb.SpvSyncResponse{}, nil
+	return nil
 }
 func (s *loaderServer) RescanPoint(ctx context.Context, req *pb.RescanPointRequest) (*pb.RescanPointResponse, error) {
 	wallet, ok := s.loader.LoadedWallet()

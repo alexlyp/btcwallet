@@ -35,6 +35,7 @@ const reqSvcs = wire.SFNodeNetwork | wire.SFNodeCF
 type Syncer struct {
 	// atomics
 	atomicCatchUpTryLock uint32 // CAS (entered=1) to perform discovery/rescan
+	atomicWalletSynced   uint32 // CAS (synced=1) when wallet syncing complete
 
 	wallet *wallet.Wallet
 	lp     *p2p.LocalPeer
@@ -48,6 +49,9 @@ type Syncer struct {
 	connectingRemotes map[string]struct{}
 	remotes           map[string]*p2p.RemotePeer
 	remotesMu         sync.Mutex
+
+	// channel to notify rpc of syncness
+	Synced chan bool
 
 	// Data filters
 	//
@@ -82,6 +86,7 @@ func NewSyncer(w *wallet.Wallet, lp *p2p.LocalPeer) *Syncer {
 		rescanFilter:      wallet.NewRescanFilter(nil, nil),
 		seenTxs:           lru.NewCache(2000),
 		lp:                lp,
+		Synced:            make(chan bool),
 	}
 }
 
@@ -1001,7 +1006,6 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 	if err != nil {
 		return err
 	}
-
 	if atomic.CompareAndSwapUint32(&s.atomicCatchUpTryLock, 0, 1) {
 		err = func() error {
 			rescanPoint, err := s.wallet.RescanPoint()
@@ -1016,8 +1020,17 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 					}
 					s.loadedFilters = true
 				}
+				if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 0, 1) {
+					s.Synced <- true
+				}
 				return nil
 			}
+			// RescanPoint is != nil so we are not synced to the peer and
+			// check to see if it was previously synced
+			if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 1, 0) {
+				s.Synced <- false
+			}
+
 			err = s.wallet.DiscoverActiveAddresses(ctx, rp, rescanPoint, s.discoverAccounts)
 			if err != nil {
 				return err
@@ -1028,7 +1041,14 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 				return err
 			}
 			s.loadedFilters = true
-			return s.wallet.Rescan(ctx, s, rescanPoint)
+			err = s.wallet.Rescan(ctx, s, rescanPoint)
+			if err != nil {
+				return err
+			}
+			if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 0, 1) {
+				s.Synced <- true
+			}
+			return nil
 		}()
 		atomic.StoreUint32(&s.atomicCatchUpTryLock, 0)
 		if err != nil {
