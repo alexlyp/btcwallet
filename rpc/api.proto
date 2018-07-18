@@ -190,6 +190,7 @@ message RenameAccountResponse {}
 
 message RescanRequest {
 	int32 begin_height = 1;
+	bytes begin_hash = 2;
 }
 message RescanResponse {
 	int32 rescanned_through = 1;
