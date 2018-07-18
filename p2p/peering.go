@@ -1167,11 +1167,11 @@ func (rp *RemotePeer) GetCFilters(ctx context.Context, blockHashes []*chainhash.
 	// TODO: this is spammy and would be better implemented with a single
 	// request/response.
 	filters := make([]*gcs.Filter, len(blockHashes))
-	g, gctx := errgroup.WithContext(ctx)
+	g, ctx := errgroup.WithContext(ctx)
 	for i := range blockHashes {
 		i := i
 		g.Go(func() error {
-			f, err := rp.GetCFilter(gctx, blockHashes[i])
+			f, err := rp.GetCFilter(ctx, blockHashes[i])
 			filters[i] = f
 			return err
 		})

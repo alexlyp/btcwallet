@@ -990,7 +990,7 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 	}
 
 	// Fetch any missing main chain compact filters.
-	err := s.wallet.FetchMissingCFilters(ctx, s)
+	err := s.wallet.FetchMissingCFilters(ctx, rp)
 	if err != nil {
 		return err
 	}
