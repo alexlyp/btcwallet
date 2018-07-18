@@ -831,7 +831,7 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 			continue
 		}
 
-		log.Infof("Fetched cfilters for blocks %v-%v from %v", height, height+span-1)
+		log.Infof("Fetched cfilters for blocks %v-%v", height, height+span-1)
 	}
 }
 
