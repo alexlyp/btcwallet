@@ -380,13 +380,13 @@ func (s *walletServer) Rescan(req *pb.RescanRequest, svr pb.WalletService_Rescan
 	var blockID *wallet.BlockIdentifier
 	switch {
 	case req.BeginHash != nil && req.BeginHeight != 0:
-		return nil, status.Errorf(codes.InvalidArgument, "begin hash and height must not be set together")
+		return status.Errorf(codes.InvalidArgument, "begin hash and height must not be set together")
 	case req.BeginHeight < 0:
-		return nil, status.Errorf(codes.InvalidArgument, "begin height must be non-negative")
-	case req.BeginHeight != nil:
+		return status.Errorf(codes.InvalidArgument, "begin height must be non-negative")
+	case req.BeginHash != nil:
 		blockHash, err := chainhash.NewHash(req.BeginHash)
 		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "block hash has invalid length")
+			return status.Errorf(codes.InvalidArgument, "block hash has invalid length")
 		}
 		blockID = wallet.NewBlockIdentifierFromHash(blockHash)
 	default:
@@ -395,7 +395,7 @@ func (s *walletServer) Rescan(req *pb.RescanRequest, svr pb.WalletService_Rescan
 
 	b, err := s.wallet.BlockInfo(blockID)
 	if err != nil {
-		return nil, translateError(err)
+		return translateError(err)
 	}
 
 	progress := make(chan wallet.RescanProgress, 1)
