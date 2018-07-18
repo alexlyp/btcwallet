@@ -806,7 +806,8 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 			}
 			get = storagePtrs[:len(hashes)]
 			if get[0] != &hashes[0] {
-				panic("unexpected slice reallocation in GetMainChainBlockHashes")
+				const op errors.Op = "udb.GetMainChainBlockHashes"
+				return errors.E(op, errors.Bug, "unexpected slice reallocation")
 			}
 			return nil
 		})
