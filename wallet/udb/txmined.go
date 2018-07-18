@@ -319,8 +319,9 @@ func (s *Store) IsMissingMainChainCFilters(dbtx walletdb.ReadTx) bool {
 }
 
 // MissingCFiltersHeight returns the first main chain block height
-// with a missing cfilter.
-func (s *Store) MissingCFiltersHeight(dbtx walletdb.ReadTx) int32 {
+// with a missing cfilter.  Errors with NotExist when all main chain
+// blocks record cfilters.
+func (s *Store) MissingCFiltersHeight(dbtx walletdb.ReadTx) (int32, error) {
 	ns := dbtx.ReadBucket(wtxmgrBucketKey)
 	c := ns.NestedReadBucket(bucketBlocks).ReadCursor()
 	for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -328,10 +329,10 @@ func (s *Store) MissingCFiltersHeight(dbtx walletdb.ReadTx) int32 {
 		_, err := fetchRawCFilter(ns, hash)
 		if errors.Is(errors.NotExist, err) {
 			height := int32(byteOrder.Uint32(k))
-			return height
+			return height, nil
 		}
 	}
-	return 0
+	return 0, errors.E(errors.NotExist)
 }
 
 // InsertMissingCFilters records compact filters for each main chain block

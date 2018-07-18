@@ -760,45 +760,39 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 		return nil
 	}
 
-	// Find first main chain block without cfilters
-	var height int32
-	var startHash *chainhash.Hash
-	err = walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
-		ns := dbtx.ReadBucket(wtxmgrNamespaceKey)
-		height = w.TxStore.MissingCFiltersHeight(dbtx)
-		hash, err := w.TxStore.GetMainChainBlockHashForHeight(ns, height)
-		if err != nil {
-			return err
-		}
-		startHash = &hash
-		return nil
-	})
-	if err != nil {
-		op := errors.Opf(opf, p)
-		return errors.E(op, err)
-	}
-
 	const span = 2000
-	inclusive := true
 	storage := make([]chainhash.Hash, span)
 	storagePtrs := make([]*chainhash.Hash, span)
-	var hashes []chainhash.Hash
-	var get []*chainhash.Hash
 	for i := range storage {
 		storagePtrs[i] = &storage[i]
 	}
-	for ; ; height += span {
+	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		var height int32
+		var hashes []chainhash.Hash
+		var get []*chainhash.Hash
 		err := walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
 			ns := dbtx.ReadBucket(wtxmgrNamespaceKey)
-			storage = storage[:cap(storage)]
 			var err error
-			hashes, err = w.TxStore.GetMainChainBlockHashes(ns, startHash,
-				inclusive, storage)
-			if err != nil || len(hashes) == 0 {
+			height, err = w.TxStore.MissingCFiltersHeight(dbtx)
+			if errors.Is(errors.NotExist, err) {
+				missing = false
+				return nil
+			}
+			hash, err := w.TxStore.GetMainChainBlockHashForHeight(ns, height)
+			if err != nil {
 				return err
+			}
+			storage = storage[:cap(storage)]
+			hashes, err = w.TxStore.GetMainChainBlockHashes(ns, &hash, true, storage)
+			if err != nil {
+				return err
+			}
+			if len(hashes) == 0 {
+				const op errors.Op = "udb.GetMainChainBlockHashes"
+				return errors.E(op, errors.Bug, "expected over 0 results")
 			}
 			get = storagePtrs[:len(hashes)]
 			if get[0] != &hashes[0] {
@@ -810,7 +804,7 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 			op := errors.Opf(opf, p)
 			return errors.E(op, err)
 		}
-		if len(hashes) == 0 { // No more missing filters
+		if !missing {
 			return nil
 		}
 
@@ -820,23 +814,24 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 			return errors.E(op, err)
 		}
 
+		var cont bool
 		err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
+			_, err := w.TxStore.CFilter(dbtx, get[len(get)-1])
+			if err == nil {
+				cont = true
+				return nil
+			}
 			return w.TxStore.InsertMissingCFilters(dbtx, get, filters)
 		})
 		if err != nil {
 			op := errors.Opf(opf, p)
 			return errors.E(op, err)
 		}
-
-		first, last := height, height+span-1
-		if !inclusive {
-			first++
-			last++
+		if cont {
+			continue
 		}
-		log.Infof("Fetched cfilters for blocks %v-%v", first, last)
 
-		startHash = get[len(get)-1]
-		inclusive = false
+		log.Infof("Fetched cfilters for blocks %v-%v from %v", height, height+span-1)
 	}
 }
 
