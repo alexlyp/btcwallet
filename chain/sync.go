@@ -384,11 +384,6 @@ func (s *RPCSyncer) startupSync(ctx context.Context) error {
 		}
 	}
 
-	err = s.wallet.LoadActiveDataFilters(ctx, n, false)
-	if err != nil {
-		return err
-	}
-
 	rescanPoint, err := s.wallet.RescanPoint()
 	if err != nil {
 		return err
@@ -409,6 +404,11 @@ func (s *RPCSyncer) startupSync(ctx context.Context) error {
 			return err
 		}
 		err = s.wallet.Rescan(ctx, n, rescanPoint)
+		if err != nil {
+			return err
+		}
+	} else {
+		err = s.wallet.LoadActiveDataFilters(ctx, n, true)
 		if err != nil {
 			return err
 		}
