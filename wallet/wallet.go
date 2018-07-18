@@ -748,9 +748,14 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 	const opf = "wallet.FetchMissingCFilters(%v)"
 
 	var missing bool
+	var height int32
 	err := walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
+		var err error
 		missing = w.TxStore.IsMissingMainChainCFilters(dbtx)
-		return nil
+		if missing {
+			height, err = w.TxStore.MissingCFiltersHeight(dbtx)
+		}
+		return err
 	})
 	if err != nil {
 		op := errors.Opf(opf, p)
@@ -770,20 +775,25 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		var height int32
 		var hashes []chainhash.Hash
 		var get []*chainhash.Hash
+		var cont bool
 		err := walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
 			ns := dbtx.ReadBucket(wtxmgrNamespaceKey)
 			var err error
-			height, err = w.TxStore.MissingCFiltersHeight(dbtx)
-			if errors.Is(errors.NotExist, err) {
-				missing = false
+			missing = w.TxStore.IsMissingMainChainCFilters(dbtx)
+			if !missing {
 				return nil
 			}
 			hash, err := w.TxStore.GetMainChainBlockHashForHeight(ns, height)
 			if err != nil {
 				return err
+			}
+			_, err = w.TxStore.CFilter(dbtx, &hash)
+			if err == nil {
+				height += span
+				cont = true
+				return nil
 			}
 			storage = storage[:cap(storage)]
 			hashes, err = w.TxStore.GetMainChainBlockHashes(ns, &hash, true, storage)
@@ -807,6 +817,9 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 		if !missing {
 			return nil
 		}
+		if cont {
+			continue
+		}
 
 		filters, err := p.GetCFilters(ctx, get)
 		if err != nil {
@@ -814,7 +827,6 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 			return errors.E(op, err)
 		}
 
-		var cont bool
 		err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
 			_, err := w.TxStore.CFilter(dbtx, get[len(get)-1])
 			if err == nil {
