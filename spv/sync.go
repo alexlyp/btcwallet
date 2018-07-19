@@ -71,6 +71,16 @@ type Syncer struct {
 	currentLocators   []*chainhash.Hash
 	locatorGeneration uint
 	locatorMu         sync.Mutex
+
+	// Holds all of the potential callbacks to update the grpc request
+	notificationCallbacks *NtfnsCallbacks
+}
+
+// NtfnsCallbacks struct to contain all of the upcoming callbacks that will
+// be used to update the rpc streams for syncing.
+type NtfnsCallbacks struct {
+	// Update when the wallet becomes synced or unsynced
+	SyncUpdated SyncedUpdated
 }
 
 // SyncedUpdated is defined for a callback to notify when the wallet is seen
@@ -78,7 +88,7 @@ type Syncer struct {
 type SyncedUpdated func(sync bool)
 
 // NewSyncer creates a Syncer that will sync the wallet using SPV.
-func NewSyncer(w *wallet.Wallet, lp *p2p.LocalPeer) *Syncer {
+func NewSyncer(w *wallet.Wallet, lp *p2p.LocalPeer, callbacks *NtfnsCallbacks) *Syncer {
 	return &Syncer{
 		wallet:            w,
 		discoverAccounts:  !w.Locked(),
@@ -87,6 +97,7 @@ func NewSyncer(w *wallet.Wallet, lp *p2p.LocalPeer) *Syncer {
 		rescanFilter:      wallet.NewRescanFilter(nil, nil),
 		seenTxs:           lru.NewCache(2000),
 		lp:                lp,
+		notificationCallbacks: callbacks,
 	}
 }
 
@@ -98,7 +109,7 @@ func (s *Syncer) SetPersistantPeers(peers []string) {
 
 // Run synchronizes the wallet, returning when synchronization fails or the
 // context is cancelled.
-func (s *Syncer) Run(ctx context.Context, callback SyncedUpdated) error {
+func (s *Syncer) Run(ctx context.Context) error {
 	tipHash, tipHeight := s.wallet.MainChainTip()
 	rescanPoint, err := s.wallet.RescanPoint()
 	if err != nil {
@@ -146,10 +157,10 @@ func (s *Syncer) Run(ctx context.Context, callback SyncedUpdated) error {
 	if len(s.persistantPeers) != 0 {
 		for i := range s.persistantPeers {
 			raddr := s.persistantPeers[i]
-			g.Go(func() error { return s.connectToPersistent(ctx, raddr, callback) })
+			g.Go(func() error { return s.connectToPersistent(ctx, raddr) })
 		}
 	} else {
-		g.Go(func() error { return s.connectToCandidates(ctx, callback) })
+		g.Go(func() error { return s.connectToCandidates(ctx) })
 	}
 
 	// Wait until cancellation or a handler errors.
@@ -192,7 +203,7 @@ func (s *Syncer) peerCandidate(svcs wire.ServiceFlag) (*wire.NetAddress, error) 
 	return nil, errors.New("no addresses")
 }
 
-func (s *Syncer) connectToPersistent(ctx context.Context, raddr string, callback SyncedUpdated) error {
+func (s *Syncer) connectToPersistent(ctx context.Context, raddr string) error {
 	for {
 		func() {
 			ctx, cancel := context.WithCancel(ctx)
@@ -214,7 +225,7 @@ func (s *Syncer) connectToPersistent(ctx context.Context, raddr string, callback
 
 			wait := make(chan struct{})
 			go func() {
-				err := s.startupSync(ctx, rp, callback)
+				err := s.startupSync(ctx, rp)
 				if err != nil {
 					rp.Disconnect(err)
 				}
@@ -240,7 +251,7 @@ func (s *Syncer) connectToPersistent(ctx context.Context, raddr string, callback
 	}
 }
 
-func (s *Syncer) connectToCandidates(ctx context.Context, callback SyncedUpdated) error {
+func (s *Syncer) connectToCandidates(ctx context.Context) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
@@ -299,7 +310,7 @@ func (s *Syncer) connectToCandidates(ctx context.Context, callback SyncedUpdated
 
 			wait := make(chan struct{})
 			go func() {
-				err := s.startupSync(ctx, rp, callback)
+				err := s.startupSync(ctx, rp)
 				if err != nil {
 					rp.Disconnect(err)
 				}
@@ -986,7 +997,7 @@ func (s *Syncer) getHeaders(ctx context.Context, rp *p2p.RemotePeer) error {
 	}
 }
 
-func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer, callback SyncedUpdated) error {
+func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 	// Disconnect from the peer if their advertised block height is
 	// significantly behind the wallet's.
 	_, tipHeight := s.wallet.MainChainTip()
@@ -1020,19 +1031,18 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer, callback S
 					}
 					s.loadedFilters = true
 				}
-				if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 0, 1) {
-					if callback != nil {
-						callback(true)
-					}
+				if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 0, 1) &&
+					s.notificationCallbacks.SyncUpdated != nil {
+					s.notificationCallbacks.SyncUpdated(true)
+
 				}
 				return nil
 			}
 			// RescanPoint is != nil so we are not synced to the peer and
 			// check to see if it was previously synced
-			if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 1, 0) {
-				if callback != nil {
-					callback(false)
-				}
+			if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 1, 0) &&
+				s.notificationCallbacks.SyncUpdated != nil {
+				s.notificationCallbacks.SyncUpdated(false)
 			}
 
 			err = s.wallet.DiscoverActiveAddresses(ctx, rp, rescanPoint, s.discoverAccounts)
@@ -1049,10 +1059,9 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer, callback S
 			if err != nil {
 				return err
 			}
-			if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 0, 1) {
-				if callback != nil {
-					callback(true)
-				}
+			if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 0, 1) &&
+				s.notificationCallbacks.SyncUpdated != nil {
+				s.notificationCallbacks.SyncUpdated(true)
 			}
 			return nil
 		}()

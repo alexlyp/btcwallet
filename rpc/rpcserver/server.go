@@ -2342,26 +2342,27 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 	amgrDir := filepath.Join(s.appData, wallet.ChainParams().Name)
 	amgr := addrmgr.New(amgrDir, net.LookupIP) // TODO: be mindful of tor
 	lp := p2p.NewLocalPeer(wallet.ChainParams(), addr, amgr)
-	syncer := spv.NewSyncer(wallet, lp)
+	synced := make(chan bool)
+	ntfns := &spv.NtfnsCallbacks{
+		SyncUpdated: func(sync bool) { synced <- sync },
+	}
+	syncer := spv.NewSyncer(wallet, lp, ntfns)
 
 	wallet.SetNetworkBackend(syncer)
 	s.loader.SetNetworkBackend(syncer)
 
-	runerr := make(chan error)
-	synced := make(chan bool)
+	runerr := make(chan error, 1)
 	go func() {
-		runerr <- syncer.Run(svr.Context(), func(sync bool) { synced <- sync })
+		runerr <- syncer.Run(svr.Context())
 	}()
-	isSynced := false
 	for {
 		select {
 		case <-runerr:
 			return status.Errorf(codes.FailedPrecondition, "SPV synchronization ended: %v", runerr)
 		case <-svr.Context().Done():
 			return status.Errorf(codes.FailedPrecondition, "SPV synchronization canceled")
-		case <-synced:
-			isSynced = !isSynced
-			resp := &pb.SpvSyncResponse{Synced: isSynced}
+		case s := <-synced:
+			resp := &pb.SpvSyncResponse{Synced: s}
 			err := svr.Send(resp)
 			if err != nil {
 				return translateError(err)
