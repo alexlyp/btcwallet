@@ -2347,26 +2347,26 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 	wallet.SetNetworkBackend(syncer)
 	s.loader.SetNetworkBackend(syncer)
 
-	synced := false
+	runerr := make(chan error)
+	synced := make(chan bool)
+	go func() {
+		runerr <- syncer.Run(svr.Context(), func(sync bool) { synced <- sync })
+	}()
+
 	for {
 		select {
-		case <-syncer.Synced:
-			synced = !synced
-			resp := &pb.SpvSyncResponse{Synced: synced}
+		case <-runerr:
+			return status.Errorf(codes.FailedPrecondition, "SPV synchronization ended: %v", runerr)
+		case <-svr.Context().Done():
+			return status.Errorf(codes.FailedPrecondition, "SPV synchronization canceled")
+		case <-synced:
+			resp := &pb.SpvSyncResponse{Synced: <-synced}
 			err := svr.Send(resp)
 			if err != nil {
 				return translateError(err)
 			}
-		case <-svr.Context().Done():
-			return status.Errorf(codes.FailedPrecondition, "SPV synchronization canceled")
-		default:
-			err := syncer.Run(svr.Context())
-			if err != nil {
-				return status.Errorf(codes.FailedPrecondition, "SPV synchronization ended: %v", err)
-			}
 		}
 	}
-	return nil
 }
 func (s *loaderServer) RescanPoint(ctx context.Context, req *pb.RescanPointRequest) (*pb.RescanPointResponse, error) {
 	wallet, ok := s.loader.LoadedWallet()

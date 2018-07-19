@@ -413,7 +413,7 @@ func spvLoop(ctx context.Context, w *wallet.Wallet, loader *ldr.Loader) {
 	w.SetNetworkBackend(syncer)
 	loader.SetNetworkBackend(syncer)
 	for {
-		err := syncer.Run(ctx)
+		err := syncer.Run(ctx, nil)
 		if done(ctx) {
 			return
 		}
