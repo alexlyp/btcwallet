@@ -50,9 +50,6 @@ type Syncer struct {
 	remotes           map[string]*p2p.RemotePeer
 	remotesMu         sync.Mutex
 
-	// channel to notify rpc of syncness
-	Synced chan bool
-
 	// Data filters
 	//
 	// TODO: Replace precise rescan filter with wallet db accesses to avoid
@@ -90,7 +87,6 @@ func NewSyncer(w *wallet.Wallet, lp *p2p.LocalPeer) *Syncer {
 		rescanFilter:      wallet.NewRescanFilter(nil, nil),
 		seenTxs:           lru.NewCache(2000),
 		lp:                lp,
-		Synced:            make(chan bool),
 	}
 }
 

@@ -2352,7 +2352,7 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 	go func() {
 		runerr <- syncer.Run(svr.Context(), func(sync bool) { synced <- sync })
 	}()
-
+	isSynced := false
 	for {
 		select {
 		case <-runerr:
@@ -2360,7 +2360,8 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 		case <-svr.Context().Done():
 			return status.Errorf(codes.FailedPrecondition, "SPV synchronization canceled")
 		case <-synced:
-			resp := &pb.SpvSyncResponse{Synced: <-synced}
+			isSynced = !isSynced
+			resp := &pb.SpvSyncResponse{Synced: isSynced}
 			err := svr.Send(resp)
 			if err != nil {
 				return translateError(err)
