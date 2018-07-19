@@ -2346,7 +2346,10 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 	ntfns := &spv.NtfnsCallbacks{
 		SyncUpdated: func(sync bool) {
 			resp := &pb.SpvSyncResponse{Synced: sync}
-			_ = svr.Send(resp)
+			err := svr.Send(resp)
+			if err != nil {
+				log.Debugf("SpvSync Updated response failed to send: %v", err)
+			}
 		},
 	}
 	syncer := spv.NewSyncer(wallet, lp, ntfns)
