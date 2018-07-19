@@ -1118,7 +1118,7 @@ func (rp *RemotePeer) GetCFilter(ctx context.Context, blockHash *chainhash.Hash)
 	defer cancel()
 
 	m := wire.NewMsgGetCFilter(blockHash, wire.GCSFilterRegular)
-	c := make(chan *wire.MsgCFilter)
+	c := make(chan *wire.MsgCFilter, 1)
 	if !rp.addRequestedCFilter(blockHash, c) {
 		op := errors.Opf(opf, rp.raddr, blockHash)
 		return nil, errors.E(op, errors.Invalid, "cfilter is already being requested from this peer for this block")
@@ -1242,7 +1242,7 @@ func (rp *RemotePeer) GetHeaders(ctx context.Context, blockLocators []*chainhash
 		BlockLocatorHashes: blockLocators,
 		HashStop:           *hashStop,
 	}
-	c := make(chan *wire.MsgHeaders)
+	c := make(chan *wire.MsgHeaders, 1)
 	sendheaders, newRequest := rp.addRequestedHeaders(c)
 	if sendheaders {
 		op := errors.Opf(opf, rp.raddr)
