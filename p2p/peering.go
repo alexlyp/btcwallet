@@ -1015,12 +1015,12 @@ func (rp *RemotePeer) GetBlocks(ctx context.Context, blockHashes []*chainhash.Ha
 	for i := 0; i < len(blockHashes); i++ {
 		select {
 		case <-ctx.Done():
-			// TODO: cancelling mid request will disassociate inbound blocks
-			// from the request and cause unrequested block protocol violation
-			// disconnects.
-			for _, h := range blockHashes[i:] {
-				rp.deleteRequestedBlock(h)
-			}
+			go func() {
+				<-stalled.C
+				for _, h := range blockHashes[i:] {
+					rp.deleteRequestedBlock(h)
+				}
+			}()
 			return nil, ctx.Err()
 		case <-stalled.C:
 			op := errors.Opf(opf, rp.raddr)
