@@ -1084,14 +1084,6 @@ func (s *walletServer) GetTransactions(req *pb.GetTransactionsRequest,
 
 func (s *walletServer) GetTickets(req *pb.GetTicketsRequest,
 	server pb.WalletService_GetTicketsServer) error {
-	n, err := s.requireNetworkBackend()
-	if err != nil {
-		return err
-	}
-	chainClient, err := chain.RPCClientFromBackend(n)
-	if err != nil {
-		return translateError(err)
-	}
 
 	var startBlock, endBlock *wallet.BlockIdentifier
 	if req.StartingBlockHash != nil && req.StartingBlockHeight != 0 {
@@ -1154,7 +1146,7 @@ func (s *walletServer) GetTickets(req *pb.GetTicketsRequest,
 		}
 	}
 
-	err = s.wallet.GetTickets(rangeFn, chainClient, startBlock, endBlock)
+	err := s.wallet.GetTickets(rangeFn, startBlock, endBlock)
 	if err != nil {
 		return translateError(err)
 	}
