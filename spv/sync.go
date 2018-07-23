@@ -85,7 +85,7 @@ type NtfnsCallbacks struct {
 
 // SyncedUpdated is defined for a callback to notify when the wallet is seen
 // to be synced or unsynced from its connected peers.
-type SyncedUpdated func(sync bool)
+type SyncedUpdated func(sync bool, tipHeight int32)
 
 // NewSyncer creates a Syncer that will sync the wallet using SPV.
 func NewSyncer(w *wallet.Wallet, lp *p2p.LocalPeer, callbacks *NtfnsCallbacks) *Syncer {
@@ -1033,7 +1033,7 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 				}
 				if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 0, 1) &&
 					s.notificationCallbacks.SyncUpdated != nil {
-					s.notificationCallbacks.SyncUpdated(true)
+					s.notificationCallbacks.SyncUpdated(true, tipHeight)
 
 				}
 				return nil
@@ -1042,7 +1042,7 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 			// check to see if it was previously synced
 			if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 1, 0) &&
 				s.notificationCallbacks.SyncUpdated != nil {
-				s.notificationCallbacks.SyncUpdated(false)
+				s.notificationCallbacks.SyncUpdated(false, tipHeight)
 			}
 
 			err = s.wallet.DiscoverActiveAddresses(ctx, rp, rescanPoint, s.discoverAccounts)
@@ -1061,7 +1061,7 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 			}
 			if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 0, 1) &&
 				s.notificationCallbacks.SyncUpdated != nil {
-				s.notificationCallbacks.SyncUpdated(true)
+				s.notificationCallbacks.SyncUpdated(true, tipHeight)
 			}
 			return nil
 		}()
