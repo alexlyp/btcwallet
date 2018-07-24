@@ -1030,10 +1030,10 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 			s.loadedFilters = true
 			return s.wallet.Rescan(ctx, s, rescanPoint)
 		}()
+		atomic.StoreUint32(&s.atomicCatchUpTryLock, 0)
 		if err != nil {
 			return err
 		}
-		atomic.StoreUint32(&s.atomicCatchUpTryLock, 0)
 	}
 
 	unminedTxs, err := s.wallet.UnminedTransactions()
