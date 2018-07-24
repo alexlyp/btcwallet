@@ -931,8 +931,6 @@ func (rp *RemotePeer) GetAddrs(ctx context.Context) error {
 // requested multiple times concurrently from the same peer.
 func (rp *RemotePeer) GetBlock(ctx context.Context, blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
 	const opf = "remotepeer(%v).GetBlock(%v)"
-	ctx, cancel := context.WithTimeout(ctx, stallTimeout)
-	defer cancel()
 
 	m := wire.NewMsgGetDataSizeHint(1)
 	err := m.AddInvVect(wire.NewInvVect(wire.InvTypeBlock, blockHash))
@@ -945,23 +943,30 @@ func (rp *RemotePeer) GetBlock(ctx context.Context, blockHash *chainhash.Hash) (
 		op := errors.Opf(opf, rp.raddr, blockHash)
 		return nil, errors.E(op, errors.Invalid, "block is already being requested from this peer")
 	}
+
+	stalled := time.NewTimer(stallTimeout)
 	out := rp.out
 	for {
 		select {
 		case <-ctx.Done():
-			defer rp.deleteRequestedBlock(blockHash)
-			if ctx.Err() == context.DeadlineExceeded {
-				op := errors.Opf(opf, rp.raddr, blockHash)
-				err := errors.E(op, errors.IO, "peer appears stalled")
-				rp.Disconnect(err)
-				return nil, err
-			}
+			go func() {
+				<-stalled.C
+				rp.deleteRequestedBlock(blockHash)
+			}()
 			return nil, ctx.Err()
+		case <-stalled.C:
+			rp.deleteRequestedBlock(blockHash)
+			op := errors.Opf(opf, rp.raddr, blockHash)
+			err := errors.E(op, errors.IO, "peer appears stalled")
+			rp.Disconnect(err)
+			return nil, err
 		case <-rp.errc:
+			stalled.Stop()
 			return nil, rp.err
 		case out <- &msgAck{m, nil}:
 			out = nil
 		case m := <-c:
+			stalled.Stop()
 			return m, nil
 		}
 	}
@@ -973,8 +978,6 @@ func (rp *RemotePeer) GetBlock(ctx context.Context, blockHash *chainhash.Hash) (
 // peer.
 func (rp *RemotePeer) GetBlocks(ctx context.Context, blockHashes []*chainhash.Hash) ([]*wire.MsgBlock, error) {
 	const opf = "remotepeer(%v).GetBlocks"
-	stalled := time.NewTimer(stallTimeout)
-	defer stalled.Stop()
 
 	m := wire.NewMsgGetDataSizeHint(uint(len(blockHashes)))
 	cs := make([]chan *wire.MsgBlock, len(blockHashes))
@@ -993,11 +996,15 @@ func (rp *RemotePeer) GetBlocks(ctx context.Context, blockHashes []*chainhash.Ha
 			return nil, errors.E(op, errors.Errorf("block %v is already being requested from this peer", h))
 		}
 	}
+	stalled := time.NewTimer(stallTimeout)
 	select {
 	case <-ctx.Done():
-		for _, h := range blockHashes {
-			rp.deleteRequestedBlock(h)
-		}
+		go func() {
+			<-stalled.C
+			for _, h := range blockHashes {
+				rp.deleteRequestedBlock(h)
+			}
+		}()
 		return nil, ctx.Err()
 	case <-stalled.C:
 		op := errors.Opf(opf, rp.raddr)
@@ -1008,6 +1015,7 @@ func (rp *RemotePeer) GetBlocks(ctx context.Context, blockHashes []*chainhash.Ha
 		}
 		return nil, err
 	case <-rp.errc:
+		stalled.Stop()
 		return nil, rp.err
 	case rp.out <- &msgAck{m, nil}:
 	}
@@ -1031,6 +1039,7 @@ func (rp *RemotePeer) GetBlocks(ctx context.Context, blockHashes []*chainhash.Ha
 			}
 			return nil, err
 		case <-rp.errc:
+			stalled.Stop()
 			return nil, rp.err
 		case m := <-cs[i]:
 			blocks[i] = m
@@ -1052,8 +1061,6 @@ var ErrNotFound = errors.E(errors.NotExist, "transaction not found")
 // messages are received for requested transactions.
 func (rp *RemotePeer) GetTransactions(ctx context.Context, hashes []*chainhash.Hash) ([]*wire.MsgTx, error) {
 	const opf = "remotepeer(%v).GetTransactions"
-	ctx, cancel := context.WithTimeout(ctx, stallTimeout)
-	defer cancel()
 
 	m := wire.NewMsgGetDataSizeHint(uint(len(hashes)))
 	cs := make([]chan *wire.MsgTx, len(hashes))
@@ -1082,28 +1089,34 @@ func (rp *RemotePeer) GetTransactions(ctx context.Context, hashes []*chainhash.H
 	}
 	txs := make([]*wire.MsgTx, len(hashes))
 	var notfound bool
+	stalled := time.NewTimer(stallTimeout)
 	for i := 0; i < len(hashes); i++ {
 		select {
 		case <-ctx.Done():
-			defer func() {
+			go func() {
+				<-stalled.C
 				for _, h := range hashes[i:] {
 					rp.deleteRequestedTx(h)
 				}
 			}()
-			if ctx.Err() == context.DeadlineExceeded {
-				op := errors.Opf(opf, rp.raddr)
-				err := errors.E(op, errors.IO, "peer appears stalled")
-				rp.Disconnect(err)
-				return nil, err
-			}
 			return nil, ctx.Err()
+		case <-stalled.C:
+			for _, h := range hashes[i:] {
+				rp.deleteRequestedTx(h)
+			}
+			op := errors.Opf(opf, rp.raddr)
+			err := errors.E(op, errors.IO, "peer appears stalled")
+			rp.Disconnect(err)
+			return nil, err
 		case <-rp.errc:
+			stalled.Stop()
 			return nil, rp.err
 		case m, ok := <-cs[i]:
 			txs[i] = m
 			notfound = notfound || !ok
 		}
 	}
+	stalled.Stop()
 	if notfound {
 		return txs, ErrNotFound
 	}
@@ -1114,8 +1127,6 @@ func (rp *RemotePeer) GetTransactions(ctx context.Context, hashes []*chainhash.H
 // block can not be requested concurrently from the same peer.
 func (rp *RemotePeer) GetCFilter(ctx context.Context, blockHash *chainhash.Hash) (*gcs.Filter, error) {
 	const opf = "remotepeer(%v).GetCFilter(%v)"
-	ctx, cancel := context.WithTimeout(ctx, stallTimeout)
-	defer cancel()
 
 	m := wire.NewMsgGetCFilter(blockHash, wire.GCSFilterRegular)
 	c := make(chan *wire.MsgCFilter, 1)
@@ -1123,23 +1134,29 @@ func (rp *RemotePeer) GetCFilter(ctx context.Context, blockHash *chainhash.Hash)
 		op := errors.Opf(opf, rp.raddr, blockHash)
 		return nil, errors.E(op, errors.Invalid, "cfilter is already being requested from this peer for this block")
 	}
+	stalled := time.NewTimer(stallTimeout)
 	out := rp.out
 	for {
 		select {
 		case <-ctx.Done():
-			defer rp.deleteRequestedCFilter(blockHash)
-			if ctx.Err() == context.DeadlineExceeded {
-				op := errors.Opf(opf, rp.raddr, blockHash)
-				err := errors.E(op, errors.IO, "peer appears stalled")
-				rp.Disconnect(err)
-				return nil, err
-			}
+			go func() {
+				<-stalled.C
+				rp.deleteRequestedCFilter(blockHash)
+			}()
 			return nil, ctx.Err()
+		case <-stalled.C:
+			rp.deleteRequestedCFilter(blockHash)
+			op := errors.Opf(opf, rp.raddr, blockHash)
+			err := errors.E(op, errors.IO, "peer appears stalled")
+			rp.Disconnect(err)
+			return nil, err
 		case <-rp.errc:
+			stalled.Stop()
 			return nil, rp.err
 		case out <- &msgAck{m, nil}:
 			out = nil
 		case m := <-c:
+			stalled.Stop()
 			var f *gcs.Filter
 			var err error
 			if len(m.Data) == 0 {
@@ -1161,8 +1178,6 @@ func (rp *RemotePeer) GetCFilter(ctx context.Context, blockHash *chainhash.Hash)
 // concurrently and waiting on every result.
 func (rp *RemotePeer) GetCFilters(ctx context.Context, blockHashes []*chainhash.Hash) ([]*gcs.Filter, error) {
 	const opf = "remotepeer(%v).GetCFilters"
-	ctx, cancel := context.WithTimeout(ctx, stallTimeout)
-	defer cancel()
 
 	// TODO: this is spammy and would be better implemented with a single
 	// request/response.
@@ -1192,8 +1207,6 @@ func (rp *RemotePeer) GetCFilters(ctx context.Context, blockHashes []*chainhash.
 // message corresponds with any getheaders request.
 func (rp *RemotePeer) SendHeaders(ctx context.Context) error {
 	const opf = "remotepeer(%v).SendHeaders"
-	ctx, cancel := context.WithTimeout(ctx, stallTimeout)
-	defer cancel()
 
 	// If negotiated protocol version allows it, and the option is set, request
 	// blocks to be announced by pushing headers messages.
@@ -1210,18 +1223,20 @@ func (rp *RemotePeer) SendHeaders(ctx context.Context) error {
 	if old {
 		return nil
 	}
+
+	stalled := time.NewTimer(stallTimeout)
+	defer stalled.Stop()
 	select {
 	case <-ctx.Done():
 		rp.requestedHeadersMu.Lock()
 		rp.sendheaders = false
 		rp.requestedHeadersMu.Unlock()
-		if ctx.Err() == context.DeadlineExceeded {
-			op := errors.Opf(opf, rp.raddr)
-			err := errors.E(op, errors.IO, "peer appears stalled")
-			rp.Disconnect(err)
-			return err
-		}
 		return ctx.Err()
+	case <-stalled.C:
+		op := errors.Opf(opf, rp.raddr)
+		err := errors.E(op, errors.IO, "peer appears stalled")
+		rp.Disconnect(err)
+		return err
 	case <-rp.errc:
 		return rp.err
 	case rp.out <- &msgAck{wire.NewMsgSendHeaders(), nil}:
@@ -1235,8 +1250,7 @@ func (rp *RemotePeer) SendHeaders(ctx context.Context) error {
 // message has been sent to the remote peer.
 func (rp *RemotePeer) GetHeaders(ctx context.Context, blockLocators []*chainhash.Hash, hashStop *chainhash.Hash) ([]*wire.BlockHeader, error) {
 	const opf = "remotepeer(%v).GetHeaders"
-	ctx, cancel := context.WithTimeout(ctx, stallTimeout)
-	defer cancel()
+
 	m := &wire.MsgGetHeaders{
 		ProtocolVersion:    rp.pver,
 		BlockLocatorHashes: blockLocators,
@@ -1252,23 +1266,28 @@ func (rp *RemotePeer) GetHeaders(ctx context.Context, blockLocators []*chainhash
 		op := errors.Opf(opf, rp.raddr)
 		return nil, errors.E(op, errors.Invalid, "headers are already being requested from this peer")
 	}
+	stalled := time.NewTimer(stallTimeout)
 	out := rp.out
 	for {
 		select {
 		case <-ctx.Done():
-			defer rp.deleteRequestedHeaders()
-			if ctx.Err() == context.DeadlineExceeded {
-				op := errors.Opf(opf, rp.raddr)
-				err := errors.E(op, errors.IO, "peer appears stalled")
-				rp.Disconnect(err)
-				return nil, err
-			}
+			go func() {
+				<-stalled.C
+				rp.deleteRequestedHeaders()
+			}()
 			return nil, ctx.Err()
+		case <-stalled.C:
+			op := errors.Opf(opf, rp.raddr)
+			err := errors.E(op, errors.IO, "peer appears stalled")
+			rp.Disconnect(err)
+			return nil, err
 		case <-rp.errc:
+			stalled.Stop()
 			return nil, rp.err
 		case out <- &msgAck{m, nil}:
 			out = nil
 		case m := <-c:
+			stalled.Stop()
 			return m.Headers, nil
 		}
 	}
