@@ -427,6 +427,9 @@ func (lp *LocalPeer) connectOutbound(ctx context.Context, id uint64, addr string
 		case <-timer.C:
 			if retryDuration < 200*time.Second {
 				retryDuration += 5 * time.Second
+				if !timer.Stop() {
+					<-timer.C
+				}
 				timer.Reset(retryDuration)
 			}
 		}
@@ -1043,6 +1046,9 @@ func (rp *RemotePeer) GetBlocks(ctx context.Context, blockHashes []*chainhash.Ha
 			return nil, rp.err
 		case m := <-cs[i]:
 			blocks[i] = m
+			if !stalled.Stop() {
+				<-stalled.C
+			}
 			stalled.Reset(stallTimeout)
 		}
 	}
