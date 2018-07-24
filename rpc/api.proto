@@ -681,7 +681,10 @@ message FetchHeadersResponse {
 	int32 main_chain_tip_block_height = 5;
 }
 
-message SpvSyncRequest {}
+message SpvSyncRequest {
+	bool discover_accounts = 1;
+	bytes private_passphrase = 2;
+}
 message SpvSyncResponse {
 	bool synced = 1;
 	int32 synced_height = 2;

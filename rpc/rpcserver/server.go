@@ -2330,6 +2330,22 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 		return status.Errorf(codes.FailedPrecondition, "Wallet has not been loaded")
 	}
 
+	if req.DiscoverAccounts && len(req.PrivatePassphrase) == 0 {
+		return status.Errorf(codes.InvalidArgument, "private passphrase is required for discovering accounts")
+	}
+
+	if req.DiscoverAccounts {
+		lock := make(chan time.Time, 1)
+		defer func() {
+			lock <- time.Time{}
+			zero.Bytes(req.PrivatePassphrase)
+		}()
+		err := wallet.Unlock(req.PrivatePassphrase, lock)
+		if err != nil {
+			return translateError(err)
+		}
+	}
+
 	addr := &net.TCPAddr{IP: net.ParseIP("::1"), Port: 0}
 	amgrDir := filepath.Join(s.appData, wallet.ChainParams().Name)
 	amgr := addrmgr.New(amgrDir, net.LookupIP) // TODO: be mindful of tor
@@ -2862,13 +2878,13 @@ func marshalDecodedTxInputs(mtx *wire.MsgTx) []*pb.DecodedTransaction_Input {
 		inputs[i] = &pb.DecodedTransaction_Input{
 			PreviousTransactionHash:  txIn.PreviousOutPoint.Hash[:],
 			PreviousTransactionIndex: txIn.PreviousOutPoint.Index,
-			Tree:                     pb.DecodedTransaction_Input_TreeType(txIn.PreviousOutPoint.Tree),
-			Sequence:                 txIn.Sequence,
-			AmountIn:                 txIn.ValueIn,
-			BlockHeight:              txIn.BlockHeight,
-			BlockIndex:               txIn.BlockIndex,
-			SignatureScript:          txIn.SignatureScript,
-			SignatureScriptAsm:       disbuf,
+			Tree:               pb.DecodedTransaction_Input_TreeType(txIn.PreviousOutPoint.Tree),
+			Sequence:           txIn.Sequence,
+			AmountIn:           txIn.ValueIn,
+			BlockHeight:        txIn.BlockHeight,
+			BlockIndex:         txIn.BlockIndex,
+			SignatureScript:    txIn.SignatureScript,
+			SignatureScriptAsm: disbuf,
 		}
 	}
 

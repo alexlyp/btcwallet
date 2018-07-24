@@ -1050,6 +1050,8 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 				return err
 			}
 			s.discoverAccounts = false
+			s.wallet.Lock()
+
 			err = s.wallet.LoadActiveDataFilters(ctx, s, true)
 			if err != nil {
 				return err
