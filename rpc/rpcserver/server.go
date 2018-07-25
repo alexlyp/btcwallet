@@ -2361,7 +2361,15 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 		},
 	}
 	syncer := spv.NewSyncer(wallet, lp, ntfns)
-
+	if len(req.SpvConnect) > 0 {
+		spvConnect, err := cfgutil.NormalizeAddress(req.SpvConnect, s.activeNet.Params.DefaultPort)
+		if err != nil {
+			return status.Errorf(codes.FailedPrecondition, "SPV Connect address invalid: %v", err)
+		}
+		spvConnects := make([]string, 1)
+		spvConnects[0] = spvConnect
+		syncer.SetPersistantPeers(spvConnects)
+	}
 	wallet.SetNetworkBackend(syncer)
 	s.loader.SetNetworkBackend(syncer)
 
