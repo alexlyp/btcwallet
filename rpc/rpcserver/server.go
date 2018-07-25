@@ -2377,7 +2377,7 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "SPV synchronization ended: %v", err)
 	}
-	return status.Errorf(codes.FailedPrecondition, "SPV synchronization canceled")
+	return status.Errorf(codes.Canceled, "rescan canceled")
 }
 func (s *loaderServer) RescanPoint(ctx context.Context, req *pb.RescanPointRequest) (*pb.RescanPointResponse, error) {
 	wallet, ok := s.loader.LoadedWallet()
