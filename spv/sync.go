@@ -1034,7 +1034,6 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 				if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 0, 1) &&
 					s.notificationCallbacks.SyncUpdated != nil {
 					s.notificationCallbacks.SyncUpdated(true, tipHeight)
-
 				}
 				return nil
 			}
