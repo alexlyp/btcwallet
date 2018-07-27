@@ -99,7 +99,7 @@ no dependencies and is always running.
 - [`SubscribeToBlockNotifications`](#subscribetoblocknotifications)
 - [`FetchHeaders`](#fetchheaders)
 - [`RescanPoint`](#rescanpoint)
-- [`SPVSync`](#spvsync)
+- [`SpvSync`](#spvsync)
 
 **Shared messages:**
 
@@ -397,7 +397,7 @@ whether DiscoverAddresses is required to run again.
 
 **Response:** `RescanPointResponse`
 
-- `bytes RescanPointHash`: The current hash of the RescanPoint.
+- `bytes rescan_point_hash`: The current hash of the RescanPoint.
 
 **Expected Errors:**
 
@@ -407,22 +407,38 @@ whether DiscoverAddresses is required to run again.
 ___
 ___
 
-#### `SPVSync`
+#### `SpvSync`
 
-The `SPVSync` method starts the syncing process for the --spv wallet.  It will
+The `SpvSync` method starts the syncing process for the --spv wallet.  It will
 stream back progress to provide feedback on the current state of the wallet
 loading/bringup.  This will be a long lived RPC and only end when canceled
 or upon received an error.
 
-**Request:** `SPVSyncRequest`
+**Request:** `SpvSyncRequest`
 
-**Response:** `stream SPVSyncResponse`
+- `bool discover_accounts`:  Whether or not the wallet should attempt to
+  discover accounts during discovery.  This requires the private passphrase to
+  be set as well and will error otherwise.
 
-- `string message`: Feedback about SPV Sync progress.
+- `bytes private_passphrase`: The current private passphrase for the wallet.
+  This is only required if discover_accounts is set to true and will error
+  otherwise.
+
+- `string spv_connect`: This allows the spvconnect dcrwallet config option to be
+  set on request.  Takes an address or port.
+
+**Response:** `stream SpvSyncResponse`
+
+- `bool synced`: 
+	bool synced = 1;
+	int32 synced_height = 2;
+}
 
 **Expected Errors:**
 
 - `FailedPrecondition`: The wallet or consensus RPC server has not been opened.
+  The private passphrase does not successfully unlock the wallet.  The string
+  provided to spv_connect is not a valid address or port.
 
 **Stability:** Unstable
 ___
