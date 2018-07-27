@@ -429,10 +429,8 @@ or upon received an error.
 
 **Response:** `stream SpvSyncResponse`
 
-- `bool synced`: 
-	bool synced = 1;
-	int32 synced_height = 2;
-}
+- `bool synced`: This streamed update response denotes whether the wallet is 
+  currently synced to it's peers or not.
 
 **Expected Errors:**
 

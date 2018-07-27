@@ -2363,8 +2363,8 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 	lp := p2p.NewLocalPeer(wallet.ChainParams(), addr, amgr)
 
 	ntfns := &spv.NtfnsCallbacks{
-		SyncUpdated: func(sync bool, tipHeight int32) {
-			resp := &pb.SpvSyncResponse{Synced: sync, SyncedHeight: tipHeight}
+		SyncUpdated: func(sync bool) {
+			resp := &pb.SpvSyncResponse{Synced: sync}
 			err := svr.Send(resp)
 			if err != nil {
 				log.Debugf("SpvSync Updated response failed to send: %v", err)
