@@ -98,6 +98,7 @@ no dependencies and is always running.
 - [`DiscoverAddresses`](#discoveraddresses)
 - [`SubscribeToBlockNotifications`](#subscribetoblocknotifications)
 - [`FetchHeaders`](#fetchheaders)
+- [`FetchMissingCFilters`](#fetchmissingcfilters)
 - [`RescanPoint`](#rescanpoint)
 - [`SpvSync`](#spvsync)
 
@@ -378,6 +379,22 @@ should begin at.
 
 - `int32 main_chain_tip_block_height`: The height of the main chain tip block after
   the fetched headers have been applied to the previous tip.
+
+**Expected errors:**
+
+- `FailedPrecondition`: The wallet or consensus RPC server has not been opened.
+
+**Stability:** Unstable
+___
+
+#### `FetchMissingCFilters`
+
+The `FetchMissingCFilters` method fetches any missing committed filters from
+the main chain.
+
+**Request:** `FetchMissingCFiltersRequest`
+
+**Response:** `FetchMissingCFiltersResponse`
 
 **Expected errors:**
 
