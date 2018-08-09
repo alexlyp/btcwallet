@@ -690,20 +690,12 @@ message SpvSyncRequest {
 message SpvSyncResponse {
 	message SyncingStatus {
 		message FetchHeaders {
-			uint32 fetched_headers_count = 1;
+			int32 fetched_headers_count = 1;
 			int64 last_header_time = 2;
 		}
 		FetchHeaders fetch_headers = 1;
-		bool addresses_discovered = 2;
+		bool DiscoveredAddresses = 2;
 		int32 rescanned_through = 3;
-	}
-	message PeerStatus {
-		message Peer {
-			string tcp_address = 1;
-			int64 start_time = 2;
-			string disconnect_message = 3;
-		}
-		repeated Peer peers = 1;
 	}
 	SyncingStatus syncing_status = 1;
 	int32 peer_count = 2;

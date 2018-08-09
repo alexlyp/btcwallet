@@ -2370,19 +2370,51 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 	lp := p2p.NewLocalPeer(wallet.ChainParams(), addr, amgr)
 
 	ntfns := &spv.Notifications{
-		Synced: func(sync bool) {
-			resp := &pb.SpvSyncResponse{Synced: sync}
-
-			// Lock the wallet after the first time synced while also
-			// discovering accounts.
-			if sync && lockWallet != nil {
-				lockWallet()
-				lockWallet = nil
+		PeerStatus: func(peerCount int32) {
+			resp := &pb.SpvSyncResponse{
+				PeerCount: peerCount,
 			}
-
+			_ = svr.Send(resp)
+		},
+		FetchedHeaders: func(fetchedHeadersCount int32, lastHeaderTime int64) {
+			resp := &pb.SpvSyncResponse{
+				SyncingStatus: &pb.SpvSyncResponse_SyncingStatus{
+					FetchHeaders: &pb.SpvSyncResponse_SyncingStatus_FetchHeaders{
+						FetchedHeadersCount: fetchedHeadersCount,
+						LastHeaderTime:      lastHeaderTime,
+					},
+				},
+			}
+			_ = svr.Send(resp)
+		},
+		Synced: func(sync bool) {
+			resp := &pb.SpvSyncResponse{}
 			// TODO: Add some kind of logging here.  Do nothing with the error
 			// for now. Could be nice to see what happened, but not super
 			// important.
+			_ = svr.Send(resp)
+		},
+		DiscoveredAddresses: func(finished bool) {
+			resp := &pb.SpvSyncResponse{
+				SyncingStatus: &pb.SpvSyncResponse_SyncingStatus{
+					DiscoveredAddresses: finished,
+				},
+			}
+
+			// Lock the wallet after the first time discovered while also
+			// discovering accounts.
+			if finished && lockWallet != nil {
+				lockWallet()
+				lockWallet = nil
+			}
+			_ = svr.Send(resp)
+		},
+		RescanProgress: func(rescannedThrough int32) {
+			resp := &pb.SpvSyncResponse{
+				SyncingStatus: &pb.SpvSyncResponse_SyncingStatus{
+					RescannedThrough: rescannedThrough,
+				},
+			}
 			_ = svr.Send(resp)
 		},
 	}

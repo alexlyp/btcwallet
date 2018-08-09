@@ -34,11 +34,11 @@ const reqSvcs = wire.SFNodeNetwork | wire.SFNodeCF
 // protocol using Simplified Payment Verification (SPV) with compact filters.
 type Syncer struct {
 	// atomics
-	atomicCatchUpTryLock uint32 // CAS (entered=1) to perform discovery/rescan
-	atomicWalletSynced   uint32 // CAS (synced=1) when wallet syncing complete
-
-	wallet *wallet.Wallet
-	lp     *p2p.LocalPeer
+	atomicCatchUpTryLock      uint32 // CAS (entered=1) to perform discovery/rescan
+	atomicWalletSynced        uint32 // CAS (synced=1) when wallet syncing complete
+	atomicDiscoveredAddresses uint32 // CAS (discovered=1) when discover address complete
+	wallet                    *wallet.Wallet
+	lp                        *p2p.LocalPeer
 
 	// Protected by atomicCatchUpTryLock
 	discoverAccounts bool
@@ -82,6 +82,17 @@ type Notifications struct {
 	// Synced is defined for a callback to notify when the wallet is seen
 	// to be synced or unsynced from its connected peers.
 	Synced func(sync bool)
+	// FetchedHeaders returns the number of headers that were fetched and the
+	// time of the last header
+	FetchedHeaders func(fetchedHeaders int32, lastHeaderTime int64)
+	// DiscoveredAddresses updates to true when it is finishing searching for
+	// used addresses and accounts (if requested).
+	DiscoveredAddresses func(finished bool)
+	// RescanProgress returns the block of the main chain that has been
+	// rescanned through.
+	RescanProgress func(rescannedThrough int32)
+	// PeerStatus returns the current number of connected peers while using SPV
+	PeerStatus func(peerCount int32)
 }
 
 // NewSyncer creates a Syncer that will sync the wallet using SPV.
@@ -126,6 +137,29 @@ func (s *Syncer) unsynced() {
 		s.notifications != nil &&
 		s.notifications.Synced != nil {
 		s.notifications.Synced(false)
+	}
+}
+
+// discoveredAddresses checks the atomic that controls whether discover addresses
+// process has not yet completed, and if so updates the atomic and updates the
+// notification, if set.
+func (s *Syncer) discoveredAddresses() {
+	if atomic.CompareAndSwapUint32(&s.atomicDiscoveredAddresses, 0, 1) &&
+		s.notifications != nil &&
+		s.notifications.DiscoveredAddresses != nil {
+		s.notifications.DiscoveredAddresses(true)
+	}
+}
+
+func (s *Syncer) rescanProgress(rescannedThrough int32) {
+	if s.notifications != nil && s.notifications.RescanProgress != nil {
+		s.notifications.RescanProgress(rescannedThrough)
+	}
+}
+
+func (s *Syncer) peerStatus(peerCount int32) {
+	if s.notifications != nil && s.notifications.PeerStatus != nil {
+		s.notifications.PeerStatus(peerCount)
 	}
 }
 
@@ -243,6 +277,7 @@ func (s *Syncer) connectToPersistent(ctx context.Context, raddr string) error {
 			k := addrmgr.NetAddressKey(rp.NA())
 			s.remotesMu.Lock()
 			s.remotes[k] = rp
+			s.peerStatus(int32(len(s.remotes)))
 			s.remotesMu.Unlock()
 
 			wait := make(chan struct{})
@@ -314,6 +349,7 @@ func (s *Syncer) connectToCandidates(ctx context.Context) error {
 
 			s.remotesMu.Lock()
 			s.connectingRemotes[k] = struct{}{}
+			s.peerStatus(int32(len(s.connectingRemotes)))
 			s.remotesMu.Unlock()
 
 			rp, err := s.lp.ConnectOutbound(ctx, raddr, reqSvcs)
@@ -1068,6 +1104,7 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 				return err
 			}
 			s.discoverAccounts = false
+			s.discoveredAddresses()
 			err = s.wallet.LoadActiveDataFilters(ctx, s, true)
 			if err != nil {
 				return err
