@@ -287,8 +287,10 @@ func (w *Wallet) Rescan(ctx context.Context, n NetworkBackend, startHash *chainh
 
 // RescanProgressFromHash starts a rescan of the wallet for all blocks on the main chain
 // beginning at startHash.  This function blocks until the rescan completes.
-func (w *Wallet) RescanProgressFromHash(ctx context.Context, n NetworkBackend, startHash *chainhash.Hash, p chan<- RescanProgress) error {
+func (w *Wallet) RescanProgressFromHash(ctx context.Context, n NetworkBackend, startHash *chainhash.Hash, p chan<- RescanProgress) {
 	const op errors.Op = "wallet.RescanProgressFromHash"
+
+	defer close(p)
 
 	var startHeight int32
 	err := walletdb.View(w.db, func(tx walletdb.ReadTx) error {
@@ -301,14 +303,13 @@ func (w *Wallet) RescanProgressFromHash(ctx context.Context, n NetworkBackend, s
 		return nil
 	})
 	if err != nil {
-		return errors.E(op, err)
+		p <- RescanProgress{Err: errors.E(op, err)}
 	}
 
 	err = w.rescan(ctx, n, startHash, startHeight, p)
 	if err != nil {
-		return errors.E(op, err)
+		p <- RescanProgress{Err: errors.E(op, err)}
 	}
-	return nil
 }
 
 // RescanFromHeight is an alternative to Rescan that takes a block height
