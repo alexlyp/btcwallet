@@ -285,6 +285,32 @@ func (w *Wallet) Rescan(ctx context.Context, n NetworkBackend, startHash *chainh
 	return nil
 }
 
+// RescanWithProgress starts a rescan of the wallet for all blocks on the main chain
+// beginning at startHash.  This function blocks until the rescan completes.
+func (w *Wallet) RescanProgressFromHash(ctx context.Context, n NetworkBackend, startHash *chainhash.Hash, p chan<- RescanProgress) error {
+	const op errors.Op = "wallet.Rescan"
+
+	var startHeight int32
+	err := walletdb.View(w.db, func(tx walletdb.ReadTx) error {
+		txmgrNs := tx.ReadBucket(wtxmgrNamespaceKey)
+		header, err := w.TxStore.GetSerializedBlockHeader(txmgrNs, startHash)
+		if err != nil {
+			return err
+		}
+		startHeight = udb.ExtractBlockHeaderHeight(header)
+		return nil
+	})
+	if err != nil {
+		return errors.E(op, err)
+	}
+
+	err = w.rescan(ctx, n, startHash, startHeight, p)
+	if err != nil {
+		return errors.E(op, err)
+	}
+	return nil
+}
+
 // RescanFromHeight is an alternative to Rescan that takes a block height
 // instead of a hash.  See Rescan for more details.
 func (w *Wallet) RescanFromHeight(ctx context.Context, n NetworkBackend, startHeight int32) error {
