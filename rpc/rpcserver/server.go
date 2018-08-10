@@ -2370,7 +2370,13 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 	lp := p2p.NewLocalPeer(wallet.ChainParams(), addr, amgr)
 
 	ntfns := &spv.Notifications{
-		PeerStatus: func(peerCount int32) {
+		PeerConnected: func(peerCount int32) {
+			resp := &pb.SpvSyncResponse{
+				PeerCount: peerCount,
+			}
+			_ = svr.Send(resp)
+		},
+		PeerDisconnected: func(peerCount int32) {
 			resp := &pb.SpvSyncResponse{
 				PeerCount: peerCount,
 			}
