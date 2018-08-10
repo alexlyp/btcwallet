@@ -168,6 +168,12 @@ func (s *Syncer) peerDisconnected() {
 	}
 }
 
+func (s *Syncer) fetchHeadersProgress(fetchedHeadersCount int32, lastHeaderTime int64) {
+	if s.notifications != nil && s.notifications.PeerDisconnected != nil {
+		s.notifications.FetchedHeaders(fetchedHeadersCount, lastHeaderTime)
+	}
+}
+
 // Run synchronizes the wallet, returning when synchronization fails or the
 // context is cancelled.
 func (s *Syncer) Run(ctx context.Context) error {
@@ -1004,7 +1010,7 @@ func (s *Syncer) getHeaders(ctx context.Context, rp *p2p.RemotePeer) error {
 			s.locatorMu.Unlock()
 			continue
 		}
-
+		s.fetchHeadersProgress(int32(len(headers)), headers[len(headers)-1].Timestamp.UnixNano())
 		log.Debugf("Fetched %d new header(s) ending at height %d from %v",
 			added, nodes[len(nodes)-1].Header.Height, rp)
 
