@@ -285,10 +285,10 @@ func (w *Wallet) Rescan(ctx context.Context, n NetworkBackend, startHash *chainh
 	return nil
 }
 
-// RescanWithProgress starts a rescan of the wallet for all blocks on the main chain
+// RescanProgressFromHash starts a rescan of the wallet for all blocks on the main chain
 // beginning at startHash.  This function blocks until the rescan completes.
 func (w *Wallet) RescanProgressFromHash(ctx context.Context, n NetworkBackend, startHash *chainhash.Hash, p chan<- RescanProgress) error {
-	const op errors.Op = "wallet.Rescan"
+	const op errors.Op = "wallet.RescanProgressFromHash"
 
 	var startHeight int32
 	err := walletdb.View(w.db, func(tx walletdb.ReadTx) error {

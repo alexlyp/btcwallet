@@ -1132,6 +1132,13 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 				s.rescanProgress(p.ScannedThrough)
 			}
 
+			// finished or cancelled rescan without error
+			select {
+			case <-ctx.Done():
+				return nil //return status.Errorf(codes.Canceled, "rescan canceled")
+			default:
+				return nil
+			}
 			s.synced()
 
 			return nil
