@@ -85,6 +85,9 @@ type Notifications struct {
 	// FetchedHeaders returns the number of headers that were fetched and the
 	// time of the last header
 	FetchedHeaders func(fetchedHeaders int32, lastHeaderTime int64)
+	// FetchedMissingCFilters returns the numder of committed filters that
+	// were recently fetched from connected peers.
+	FetchMissingCFilters func(fetchedMissingCfilters int32)
 	// DiscoveredAddresses updates to true when it is finishing searching for
 	// used addresses and accounts (if requested).
 	DiscoveredAddresses func(finished bool)
@@ -141,36 +144,47 @@ func (s *Syncer) unsynced() {
 	}
 }
 
-// discoveredAddresses checks the atomic that controls whether discover addresses
-// process has not yet completed, and if so updates the atomic and updates the
-// notification, if set.
+// discoveredAddresses updates the notification for address discovery, if set.
 func (s *Syncer) discoveredAddresses(discovered bool) {
 	if s.notifications != nil && s.notifications.DiscoveredAddresses != nil {
 		s.notifications.DiscoveredAddresses(discovered)
 	}
 }
 
+// rescanProgress provides the last block height that was rescanned to the
+// notification, if set.
 func (s *Syncer) rescanProgress(rescannedThrough int32) {
 	if s.notifications != nil && s.notifications.RescanProgress != nil {
 		s.notifications.RescanProgress(rescannedThrough)
 	}
 }
 
+// peerConnected updates the notification for peer count, if set.
 func (s *Syncer) peerConnected() {
 	if s.notifications != nil && s.notifications.PeerConnected != nil {
 		s.notifications.PeerConnected(int32(len(s.remotes)))
 	}
 }
 
+// peerDisconnected updates the notification for peer count, if set.
 func (s *Syncer) peerDisconnected() {
 	if s.notifications != nil && s.notifications.PeerDisconnected != nil {
 		s.notifications.PeerDisconnected(int32(len(s.remotes)))
 	}
 }
 
+// fetchHeadersProgress updates the notiication for fetched headers, if set.
 func (s *Syncer) fetchHeadersProgress(fetchedHeadersCount int32, lastHeaderTime int64) {
 	if s.notifications != nil && s.notifications.PeerDisconnected != nil {
 		s.notifications.FetchedHeaders(fetchedHeadersCount, lastHeaderTime)
+	}
+}
+
+// fetchMissingCFiltersProgress updates the notiication for fetched headers,
+// if set.
+func (s *Syncer) fetchMissingCFiltersProgress(fetchedMissingCfilters int32) {
+	if s.notifications != nil && s.notifications.FetchMissingCFilters != nil {
+		s.notifications.FetchMissingCFilters(fetchedMissingCfilters)
 	}
 }
 

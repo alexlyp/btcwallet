@@ -2382,6 +2382,16 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 			}
 			_ = svr.Send(resp)
 		},
+		FetchMissingCFilters: func(fetchedCfiltersCount int32) {
+			resp := &pb.SpvSyncResponse{
+				SyncingStatus: &pb.SpvSyncResponse_SyncingStatus{
+					FetchHeaders: &pb.SpvSyncResponse_SyncingStatus_FetchHeaders{
+						FetchedCfiltersCount: fetchedCfiltersCount,
+					},
+				},
+			}
+			_ = svr.Send(resp)
+		},
 		FetchedHeaders: func(fetchedHeadersCount int32, lastHeaderTime int64) {
 			resp := &pb.SpvSyncResponse{
 				SyncingStatus: &pb.SpvSyncResponse_SyncingStatus{
