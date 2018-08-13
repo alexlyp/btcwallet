@@ -694,7 +694,7 @@ message SpvSyncResponse {
 			int64 last_header_time = 2;
 		}
 		FetchHeaders fetch_headers = 1;
-		bool DiscoveredAddresses = 2;
+		bool discovered_addresses = 2;
 		int32 rescanned_through = 3;
 	}
 	SyncingStatus syncing_status = 1;

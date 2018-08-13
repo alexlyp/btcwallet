@@ -1,6 +1,6 @@
 # RPC API Specification
 
-Version: 5.1.x
+Version: 5.2.x
 
 **Note:** This document assumes the reader is familiar with gRPC concepts.
 Refer to the [gRPC Concepts documentation](http://www.grpc.io/docs/guides/concepts.html)
@@ -446,8 +446,36 @@ or upon received an error.
 
 **Response:** `stream SpvSyncResponse`
 
-- `bool synced`: This streamed update response denotes whether the wallet is
-  currently synced to its peers or not.
+- `SyncingStatus syncing_status`: Various properties to describe the current
+  state of syncing the wallet is currently performing.  Once synced, this will
+  be set to nil.
+
+  **Nested message:** `SyncingStatus`
+
+  - `FetchHeaders fetch_headers`:  This returns a set of properties of fetching
+    headers.  This includes the fetched headers and committed filters counts
+    that were recently received, as well as a timestamp for the last block in
+    in the group fetched.
+    **Nested message:** `FetchHeaders`
+
+    - `int32 fetched_headers_count`:  The number of headers that were recently
+      connected to the main chain.
+
+    - `int32 fetched_cfilters_count`:  The number of committed filters that were
+      recently received from a peer and processed by the wallet.
+
+    - `int64 last_header_time`:  The unix timestamp (in nanoseconds) of the last
+      connected header that was fetched. 
+
+  - `bool discovered_addresses`:  This is set to true once the wallet has
+    successfully completed the address discovery (and account discovery, if
+    requested.)
+
+  - `int32 rescanned_through`:  The block height of the last block the rescan
+    has progressed through.
+
+- `int32 peer_count`:  The current number of peers that the wallet is connected
+  to.
 
 **Expected Errors:**
 
