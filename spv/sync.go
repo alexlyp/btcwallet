@@ -1088,15 +1088,19 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 		return errors.E("peer is not synced")
 	}
 
-	// Fetch any missing main chain compact filters.
-	err := s.wallet.FetchMissingCFilters(ctx, rp)
-	if err != nil {
-		return err
+	progress := make(chan wallet.FilterProgress, 1)
+	go s.wallet.FetchMissingCFiltersWithProgress(ctx, rp, progress)
+
+	for p := range progress {
+		if p.Err != nil {
+			return p.Err
+		}
+		s.fetchMissingCFiltersProgress(p.FiltersCount)
 	}
 
 	// Fetch any unseen headers from the peer.
 	log.Debugf("Fetching headers from %v", rp.RemoteAddr())
-	err = s.getHeaders(ctx, rp)
+	err := s.getHeaders(ctx, rp)
 	if err != nil {
 		return err
 	}

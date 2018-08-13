@@ -850,6 +850,124 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 	}
 }
 
+// FilterProgress records the number of filters that were fetched and any
+// errors during processing of the fetching.
+type FilterProgress struct {
+	Err          error
+	FiltersCount int32
+}
+
+// FetchMissingCFiltersWithProgress records any missing compact filters for main chain
+// blocks.  A database upgrade requires all compact filters to be recorded for
+// the main chain before any more blocks may be attached, but this information
+// must be fetched at runtime after the upgrade as it is not already known at
+// the time of upgrade.  This function reports to a channel with any progress
+// that may have seen.
+func (w *Wallet) FetchMissingCFiltersWithProgress(ctx context.Context, p Peer, progress chan<- FilterProgress) {
+	const opf = "wallet.FetchMissingCFilters(%v)"
+
+	var missing bool
+	var height int32
+	err := walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
+		var err error
+		missing = w.TxStore.IsMissingMainChainCFilters(dbtx)
+		if missing {
+			height, err = w.TxStore.MissingCFiltersHeight(dbtx)
+		}
+		return err
+	})
+	if err != nil {
+		op := errors.Opf(opf, p)
+		progress <- FilterProgress{Err: errors.E(op, err)}
+	}
+	if !missing {
+		return
+	}
+
+	const span = 2000
+	storage := make([]chainhash.Hash, span)
+	storagePtrs := make([]*chainhash.Hash, span)
+	for i := range storage {
+		storagePtrs[i] = &storage[i]
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			progress <- FilterProgress{Err: errors.E(err)}
+		}
+		var hashes []chainhash.Hash
+		var get []*chainhash.Hash
+		var cont bool
+		err := walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
+			ns := dbtx.ReadBucket(wtxmgrNamespaceKey)
+			var err error
+			missing = w.TxStore.IsMissingMainChainCFilters(dbtx)
+			if !missing {
+				return nil
+			}
+			hash, err := w.TxStore.GetMainChainBlockHashForHeight(ns, height)
+			if err != nil {
+				return err
+			}
+			_, err = w.TxStore.CFilter(dbtx, &hash)
+			if err == nil {
+				height += span
+				cont = true
+				return nil
+			}
+			storage = storage[:cap(storage)]
+			hashes, err = w.TxStore.GetMainChainBlockHashes(ns, &hash, true, storage)
+			if err != nil {
+				return err
+			}
+			if len(hashes) == 0 {
+				const op errors.Op = "udb.GetMainChainBlockHashes"
+				return errors.E(op, errors.Bug, "expected over 0 results")
+			}
+			get = storagePtrs[:len(hashes)]
+			if get[0] != &hashes[0] {
+				const op errors.Op = "udb.GetMainChainBlockHashes"
+				return errors.E(op, errors.Bug, "unexpected slice reallocation")
+			}
+			return nil
+		})
+		if err != nil {
+			op := errors.Opf(opf, p)
+			progress <- FilterProgress{Err: errors.E(op, err)}
+		}
+		if !missing {
+			return
+		}
+		if cont {
+			continue
+		}
+
+		filters, err := p.GetCFilters(ctx, get)
+		if err != nil {
+			op := errors.Opf(opf, p)
+			progress <- FilterProgress{Err: errors.E(op, err)}
+		}
+
+		err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
+			_, err := w.TxStore.CFilter(dbtx, get[len(get)-1])
+			if err == nil {
+				cont = true
+				return nil
+			}
+			return w.TxStore.InsertMissingCFilters(dbtx, get, filters)
+		})
+		if err != nil {
+			op := errors.Opf(opf, p)
+			progress <- FilterProgress{Err: errors.E(op, err)}
+		}
+		if cont {
+			continue
+		}
+
+		progress <- FilterProgress{FiltersCount: int32(len(filters))}
+		log.Infof("Fetched cfilters for blocks %v-%v", height, height+span-1)
+	}
+}
+
 // createHeaderData creates the header data to process from hex-encoded
 // serialized block headers.
 func createHeaderData(headers []*wire.BlockHeader) ([]udb.BlockHeaderData, error) {
