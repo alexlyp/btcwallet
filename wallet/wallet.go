@@ -866,6 +866,8 @@ type FilterProgress struct {
 func (w *Wallet) FetchMissingCFiltersWithProgress(ctx context.Context, p Peer, progress chan<- FilterProgress) {
 	const opf = "wallet.FetchMissingCFilters(%v)"
 
+	defer close(progress)
+
 	var missing bool
 	var height int32
 	err := walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
