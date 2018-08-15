@@ -2404,7 +2404,10 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 			_ = svr.Send(resp)
 		},
 		Synced: func(sync bool) {
-			resp := &pb.SpvSyncResponse{}
+			resp := &pb.SpvSyncResponse{
+				// To signify a synced wallet we send a -1 peer count
+				PeerCount: int32(-1),
+			}
 			// TODO: Add some kind of logging here.  Do nothing with the error
 			// for now. Could be nice to see what happened, but not super
 			// important.
