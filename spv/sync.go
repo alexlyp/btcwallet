@@ -82,9 +82,9 @@ type Notifications struct {
 	// Synced is defined for a callback to notify when the wallet is seen
 	// to be synced or unsynced from its connected peers.
 	Synced func(sync bool)
-	// FetchedHeaders returns the number of headers that were fetched and the
+	// FetchedHeaders returns the height of last header that were fetched and the
 	// time of the last header
-	FetchedHeaders func(fetchedHeaders int32, lastHeaderTime int64)
+	FetchedHeaders func(lastHeaderHeight int32, lastHeaderTime int64)
 	// FetchedMissingCFilters returns the numder of committed filters that
 	// were recently fetched from connected peers.
 	FetchMissingCFilters func(fetchedMissingCfilters int32)
@@ -174,9 +174,9 @@ func (s *Syncer) peerDisconnected() {
 }
 
 // fetchHeadersProgress updates the notiication for fetched headers, if set.
-func (s *Syncer) fetchHeadersProgress(fetchedHeadersCount int32, lastHeaderTime int64) {
+func (s *Syncer) fetchHeadersProgress(fetchedHeadersHeight int32, lastHeaderTime int64) {
 	if s.notifications != nil && s.notifications.PeerDisconnected != nil {
-		s.notifications.FetchedHeaders(fetchedHeadersCount, lastHeaderTime)
+		s.notifications.FetchedHeaders(fetchedHeadersHeight, lastHeaderTime)
 	}
 }
 
@@ -1024,7 +1024,7 @@ func (s *Syncer) getHeaders(ctx context.Context, rp *p2p.RemotePeer) error {
 			s.locatorMu.Unlock()
 			continue
 		}
-		s.fetchHeadersProgress(int32(len(headers)), headers[len(headers)-1].Timestamp.UnixNano())
+		s.fetchHeadersProgress(int32(headers[len(headers)-1].Height), headers[len(headers)-1].Timestamp.UnixNano())
 		log.Debugf("Fetched %d new header(s) ending at height %d from %v",
 			added, nodes[len(nodes)-1].Header.Height, rp)
 

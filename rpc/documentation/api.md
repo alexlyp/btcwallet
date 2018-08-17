@@ -458,9 +458,8 @@ or upon received an error.
     in the group fetched.
     **Nested message:** `FetchHeaders`
 
-    - `int32 fetched_headers_count`:  The number of headers that were recently
-      connected to the main chain.
-
+    - `int32 last_header_height`:  The height of the last header fetched.
+    
     - `int32 fetched_cfilters_count`:  The number of committed filters that were
       recently received from a peer and processed by the wallet.
 
