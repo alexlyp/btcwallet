@@ -2392,12 +2392,13 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 			}
 			_ = svr.Send(resp)
 		},
-		FetchedHeaders: func(lastHeaderHeight int32, lastHeaderTime int64) {
+		FetchedHeaders: func(peerInitialHeight, lastHeaderHeight int32, lastHeaderTime int64) {
 			resp := &pb.SpvSyncResponse{
 				SyncingStatus: &pb.SpvSyncResponse_SyncingStatus{
 					FetchHeaders: &pb.SpvSyncResponse_SyncingStatus_FetchHeaders{
-						LastHeaderHeight: lastHeaderHeight,
-						LastHeaderTime:   lastHeaderTime,
+						PeerInitialHeight: peerInitialHeight,
+						LastHeaderHeight:  lastHeaderHeight,
+						LastHeaderTime:    lastHeaderTime,
 					},
 				},
 			}
