@@ -389,6 +389,7 @@ func (s *Syncer) connectToCandidates(ctx context.Context) error {
 			s.remotesMu.Lock()
 			delete(s.connectingRemotes, k)
 			s.remotes[k] = rp
+			s.peerConnected()
 			s.remotesMu.Unlock()
 
 			wait := make(chan struct{})
@@ -408,6 +409,7 @@ func (s *Syncer) connectToCandidates(ctx context.Context) error {
 			<-wait
 			s.remotesMu.Lock()
 			delete(s.remotes, k)
+			s.peerDisconnected()
 			s.remotesMu.Unlock()
 		}()
 	}
