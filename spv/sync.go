@@ -333,8 +333,9 @@ func (s *Syncer) connectToPersistent(ctx context.Context, raddr string) error {
 			k := addrmgr.NetAddressKey(rp.NA())
 			s.remotesMu.Lock()
 			s.remotes[k] = rp
-			s.peerConnected(len(s.remotes))
+			n := len(s.remotes)
 			s.remotesMu.Unlock()
+			s.peerConnected(n)
 
 			wait := make(chan struct{})
 			go func() {
@@ -348,8 +349,9 @@ func (s *Syncer) connectToPersistent(ctx context.Context, raddr string) error {
 			err = rp.Err()
 			s.remotesMu.Lock()
 			delete(s.remotes, k)
-			s.peerDisconnected(len(s.remotes))
+			n = len(s.remotes)
 			s.remotesMu.Unlock()
+			s.peerDisconnected(n)
 			<-wait
 			if ctx.Err() != nil {
 				return
