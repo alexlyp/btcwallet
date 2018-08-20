@@ -446,6 +446,26 @@ or upon received an error.
 
 **Response:** `stream SpvSyncResponse`
 
+- `bool synced`: This streamed update response denotes whether the wallet is
+  synced or not.
+
+- `SyncNotificationType notification_type`: This denotes what type of
+  notification has been sent by the wallet.
+
+- `FetchHeadersNotification fetch_headers`: This contains all the information
+  for a fetch headers notification response.  In any other case it will be 
+  set to nil.
+
+- `FetchMissingCFiltersNotification fetch_missing_cfilters`: This contains all
+  the information for a fetch missing cfilters notification response.  In any
+  other case it will be set to nil.
+
+- `RescanProgressNotifiction rescan_progress`: This contains all the information
+  for a rescan progress notification.  In any other case it will be set to nil.
+
+- `PeerNotification peer_information`: This contains information about the
+  current state of the wallet's peers.
+
 - `SyncingStatus syncing_status`: Various properties to describe the current
   state of syncing the wallet is currently performing.  Once synced, this will
   be set to nil.
@@ -2325,6 +2345,99 @@ transaction.
 
 **Stability**: Unstable.
 
+___
+#### `SyncNotificationType`
+
+The `SyncNotificationType` enum contains all the various different types of
+notifications that can occur during the syncing process.  When any notification
+is sent there will be a type included.
+
+- `SYNCED`: When the wallet is synced to its connected peers.
+
+- `UNSYNCED`: When the wallet is unsynced to its connected peers.
+
+- `PEER_CONNECTED`: When a peer connects to the wallet.  This is only available
+  while using SPV.
+
+- `PEER_DISCONNECTED`: When a peer disconnects from the wallet.  This is only
+  available while using SPV.
+
+- `FETCHED_MISSING_CFILTERS_STARTED`: Notifies when the wallet attempts to find
+  any missing committed filters.
+
+- `FETCHED_MISSING_CFILTERS_PROGRESS`: When any missing committed filters are
+  found and the progress is notified.
+
+- `FETCHED_MISSING_CFILTERS_FINISHED`: Notifies when the wallet is finished
+  fetching any missing committed filters.
+
+- `FETCHED_HEADERS_STARTED`: Notifies when the wallet attempts to fetch headers
+  from connected peers. 
+
+- `FETCHED_HEADERS_PROGRESS`: When new headers are received by the wallet, any
+  progress is notified.
+
+- `FETCHED_HEADERS_FINISHED`: Notifies when the wallet has completed fetching
+  headers.
+
+- `DISCOVER_ADDRESSES_STARTED`: Notifies when the wallet has begun the discover
+  addresses process.
+
+- `DISCOVER_ADDRESSES_FINISHED`: Notifies when the wallet has finished the
+  discover addesses process.
+
+- `RESCAN_STARTED`: When the rescan process has begun (if at all).
+
+- `RESCAN_PROGRESS`: When the rescan process has any progress to update.
+
+- `RESCAN_FINISHED`: When the rescan procress has finished.
+
+___
+#### `FetchHeadersNotification`
+
+The `FetchHeadersNotification` message is used during the syncing process for
+any fetch headers notification updates.  It contains the count of the fetched
+headers and the time of the last header fetched.
+
+- `int32 fetched_headers_count`: The number of headers recently fetched.
+
+- `int64 last_header_time`: The time (in nanoseconds) of the last header that
+  was fetched.
+
+___
+#### `FetchMissingCFiltersNotification`
+
+The `FetchMissingCFiltersNotification` message is used during the syncing
+process for any fetch missing committed filters notification updates.
+It may contain the starting and ending height of the filters that were found.
+
+- `int32 fetched_cfilters_start_height`: The height of the first missing
+  committed filter that was found.
+- `int32 fetched_cfilters_end_height`: The height of the last missing committed
+  filter that was found.
+
+___
+#### `RescanProgressNotification`
+
+The `RescanProgressNotification` message is used during the syncing process
+for any rescan progress notification updates.  It will contain the height
+of the block that the rescan process has gotten through.
+
+- `int32 rescanned_through`:  The block height that rescan has progressed
+  through.
+
+___
+#### `PeerNotification`
+
+The `PeerNotification` message is used during the syncing process for any peer
+information updates.  This includes peer count and possibly the address of
+the peer that caused a notification to be sent.
+
+- `int32 peer_count`:  The number of peers currently connected.
+
+- `string address`:  The address of the peer that caused the notification.
+
+___
 ## `SeedService`
 
 The `SeedService` service provides RPC clients with the ability to generate
