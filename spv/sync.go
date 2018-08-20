@@ -79,22 +79,20 @@ type Syncer struct {
 // Notifications struct to contain all of the upcoming callbacks that will
 // be used to update the rpc streams for syncing.
 type Notifications struct {
-	Synced                       func()
-	Unsynced                     func()
-	FetchMissingCFiltersStart    func()
+	Synced                       func(sync bool)
+	PeerConnected                func(peerCount int32)
+	PeerDisconnected             func(peerCount int32)
+	FetchMissingCFiltersStarted  func()
 	FetchMissingCFiltersProgress func(startCFiltersHeight, endCFiltersHeight int32)
 	FetchMissingCFiltersFinished func()
-	FetchHeadersStart            func()
+	FetchHeadersStarted          func()
 	FetchHeadersProgress         func(lastHeaderHeight int32, lastHeaderTime int64)
 	FetchHeadersFinished         func()
-	DiscoverAddressesStart       func()
+	DiscoverAddressesStarted     func()
 	DiscoverAddressesFinished    func()
-	RescanStart                  func()
-	RescanFinished               func()
+	RescanStarted                func()
 	RescanProgress               func(rescannedThrough int32)
-
-	PeerConnected    func(peerCount int32)
-	PeerDisconnected func(peerCount int32)
+	RescanFinished               func()
 }
 
 // NewSyncer creates a Syncer that will sync the wallet using SPV.
@@ -128,7 +126,7 @@ func (s *Syncer) synced() {
 	if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 0, 1) &&
 		s.notifications != nil &&
 		s.notifications.Synced != nil {
-		s.notifications.Synced()
+		s.notifications.Synced(true)
 	}
 }
 
@@ -138,7 +136,7 @@ func (s *Syncer) unsynced() {
 	if atomic.CompareAndSwapUint32(&s.atomicWalletSynced, 1, 0) &&
 		s.notifications != nil &&
 		s.notifications.Synced != nil {
-		s.notifications.Unsynced()
+		s.notifications.Synced(false)
 	}
 }
 
@@ -157,8 +155,8 @@ func (s *Syncer) peerDisconnected() {
 }
 
 func (s *Syncer) fetchMissingCfiltersStart() {
-	if s.notifications != nil && s.notifications.FetchMissingCFiltersStart != nil {
-		s.notifications.FetchMissingCFiltersStart()
+	if s.notifications != nil && s.notifications.FetchMissingCFiltersStarted != nil {
+		s.notifications.FetchMissingCFiltersStarted()
 	}
 }
 
@@ -175,8 +173,8 @@ func (s *Syncer) fetchMissingCfiltersFinished() {
 }
 
 func (s *Syncer) fetchHeadersStart() {
-	if s.notifications != nil && s.notifications.FetchHeadersStart != nil {
-		s.notifications.FetchHeadersStart()
+	if s.notifications != nil && s.notifications.FetchHeadersStarted != nil {
+		s.notifications.FetchHeadersStarted()
 	}
 }
 
@@ -192,8 +190,8 @@ func (s *Syncer) fetchHeadersFinished() {
 	}
 }
 func (s *Syncer) discoverAddressesStart() {
-	if s.notifications != nil && s.notifications.DiscoverAddressesStart != nil {
-		s.notifications.DiscoverAddressesStart()
+	if s.notifications != nil && s.notifications.DiscoverAddressesStarted != nil {
+		s.notifications.DiscoverAddressesStarted()
 	}
 }
 
@@ -204,8 +202,8 @@ func (s *Syncer) discoverAddressesFinished() {
 }
 
 func (s *Syncer) rescanStart() {
-	if s.notifications != nil && s.notifications.RescanStart != nil {
-		s.notifications.RescanStart()
+	if s.notifications != nil && s.notifications.RescanStarted != nil {
+		s.notifications.RescanStarted()
 	}
 }
 

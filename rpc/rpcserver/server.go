@@ -2370,17 +2370,13 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 	lp := p2p.NewLocalPeer(wallet.ChainParams(), addr, amgr)
 
 	ntfns := &spv.Notifications{
-		Unsynced: func() {
-			resp := &pb.SpvSyncResponse{
-				NotificationType: pb.SyncNotificationType_UNSYNCED,
-				Synced:           false,
-			}
-			_ = svr.Send(resp)
-		},
-		Synced: func() {
-			resp := &pb.SpvSyncResponse{
-				NotificationType: pb.SyncNotificationType_SYNCED,
-				Synced:           true,
+		Synced: func(sync bool) {
+			resp := &pb.SpvSyncResponse{}
+			resp.Synced = sync
+			if sync {
+				resp.NotificationType = pb.SyncNotificationType_SYNCED
+			} else {
+				resp.NotificationType = pb.SyncNotificationType_UNSYNCED
 			}
 			_ = svr.Send(resp)
 		},
@@ -2402,7 +2398,7 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 			}
 			_ = svr.Send(resp)
 		},
-		FetchMissingCFiltersStart: func() {
+		FetchMissingCFiltersStarted: func() {
 			resp := &pb.SpvSyncResponse{
 				NotificationType: pb.SyncNotificationType_FETCHED_MISSING_CFILTERS_STARTED,
 			}
@@ -2424,7 +2420,7 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 			}
 			_ = svr.Send(resp)
 		},
-		FetchHeadersStart: func() {
+		FetchHeadersStarted: func() {
 			resp := &pb.SpvSyncResponse{
 				NotificationType: pb.SyncNotificationType_FETCHED_HEADERS_STARTED,
 			}
@@ -2446,7 +2442,7 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 			}
 			_ = svr.Send(resp)
 		},
-		DiscoverAddressesStart: func() {
+		DiscoverAddressesStarted: func() {
 			resp := &pb.SpvSyncResponse{
 				NotificationType: pb.SyncNotificationType_DISCOVER_ADDRESSES_STARTED,
 			}
@@ -2465,7 +2461,7 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 			}
 			_ = svr.Send(resp)
 		},
-		RescanStart: func() {
+		RescanStarted: func() {
 			resp := &pb.SpvSyncResponse{
 				NotificationType: pb.SyncNotificationType_RESCAN_STARTED,
 			}
