@@ -141,16 +141,16 @@ func (s *Syncer) unsynced() {
 }
 
 // peerConnected updates the notification for peer count, if set.
-func (s *Syncer) peerConnected() {
+func (s *Syncer) peerConnected(remotesCount int) {
 	if s.notifications != nil && s.notifications.PeerConnected != nil {
-		s.notifications.PeerConnected(int32(len(s.remotes)))
+		s.notifications.PeerConnected(int32(remotesCount))
 	}
 }
 
 // peerDisconnected updates the notification for peer count, if set.
-func (s *Syncer) peerDisconnected() {
+func (s *Syncer) peerDisconnected(remotesCount int) {
 	if s.notifications != nil && s.notifications.PeerDisconnected != nil {
-		s.notifications.PeerDisconnected(int32(len(s.remotes)))
+		s.notifications.PeerDisconnected(int32(remotesCount))
 	}
 }
 
@@ -333,7 +333,7 @@ func (s *Syncer) connectToPersistent(ctx context.Context, raddr string) error {
 			k := addrmgr.NetAddressKey(rp.NA())
 			s.remotesMu.Lock()
 			s.remotes[k] = rp
-			s.peerConnected()
+			s.peerConnected(len(s.remotes))
 			s.remotesMu.Unlock()
 
 			wait := make(chan struct{})
@@ -348,7 +348,7 @@ func (s *Syncer) connectToPersistent(ctx context.Context, raddr string) error {
 			err = rp.Err()
 			s.remotesMu.Lock()
 			delete(s.remotes, k)
-			s.peerDisconnected()
+			s.peerDisconnected(len(s.remotes))
 			s.remotesMu.Unlock()
 			<-wait
 			if ctx.Err() != nil {
