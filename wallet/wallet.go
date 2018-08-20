@@ -850,11 +850,10 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 	}
 }
 
-// FilterProgress records the number of filters that were fetched and any
-// errors during processing of the fetching.
-type FilterProgress struct {
-	Err          error
-	FiltersCount int32
+type MissingCFilterProgress struct {
+	Err              error
+	BlockHeightStart int32
+	BlockHeightEnd   int32
 }
 
 // FetchMissingCFiltersWithProgress records any missing compact filters for main chain
@@ -863,7 +862,7 @@ type FilterProgress struct {
 // must be fetched at runtime after the upgrade as it is not already known at
 // the time of upgrade.  This function reports to a channel with any progress
 // that may have seen.
-func (w *Wallet) FetchMissingCFiltersWithProgress(ctx context.Context, p Peer, progress chan<- FilterProgress) {
+func (w *Wallet) FetchMissingCFiltersWithProgress(ctx context.Context, p Peer, progress chan<- MissingCFilterProgress) {
 	const opf = "wallet.FetchMissingCFilters(%v)"
 
 	defer close(progress)
@@ -880,7 +879,7 @@ func (w *Wallet) FetchMissingCFiltersWithProgress(ctx context.Context, p Peer, p
 	})
 	if err != nil {
 		op := errors.Opf(opf, p)
-		progress <- FilterProgress{Err: errors.E(op, err)}
+		progress <- MissingCFilterProgress{Err: errors.E(op, err)}
 	}
 	if !missing {
 		return
@@ -894,7 +893,7 @@ func (w *Wallet) FetchMissingCFiltersWithProgress(ctx context.Context, p Peer, p
 	}
 	for {
 		if err := ctx.Err(); err != nil {
-			progress <- FilterProgress{Err: errors.E(err)}
+			progress <- MissingCFilterProgress{Err: errors.E(err)}
 		}
 		var hashes []chainhash.Hash
 		var get []*chainhash.Hash
@@ -934,7 +933,7 @@ func (w *Wallet) FetchMissingCFiltersWithProgress(ctx context.Context, p Peer, p
 		})
 		if err != nil {
 			op := errors.Opf(opf, p)
-			progress <- FilterProgress{Err: errors.E(op, err)}
+			progress <- MissingCFilterProgress{Err: errors.E(op, err)}
 		}
 		if !missing {
 			return
@@ -946,7 +945,7 @@ func (w *Wallet) FetchMissingCFiltersWithProgress(ctx context.Context, p Peer, p
 		filters, err := p.GetCFilters(ctx, get)
 		if err != nil {
 			op := errors.Opf(opf, p)
-			progress <- FilterProgress{Err: errors.E(op, err)}
+			progress <- MissingCFilterProgress{Err: errors.E(op, err)}
 		}
 
 		err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
@@ -959,13 +958,13 @@ func (w *Wallet) FetchMissingCFiltersWithProgress(ctx context.Context, p Peer, p
 		})
 		if err != nil {
 			op := errors.Opf(opf, p)
-			progress <- FilterProgress{Err: errors.E(op, err)}
+			progress <- MissingCFilterProgress{Err: errors.E(op, err)}
 		}
 		if cont {
 			continue
 		}
 
-		progress <- FilterProgress{FiltersCount: int32(len(filters))}
+		progress <- MissingCFilterProgress{BlockHeightStart: height, BlockHeightEnd: height + span - 1}
 		log.Infof("Fetched cfilters for blocks %v-%v", height, height+span-1)
 	}
 }

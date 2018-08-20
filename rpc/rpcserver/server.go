@@ -2370,70 +2370,119 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 	lp := p2p.NewLocalPeer(wallet.ChainParams(), addr, amgr)
 
 	ntfns := &spv.Notifications{
+		Unsynced: func() {
+			resp := &pb.SpvSyncResponse{
+				NotificationType: pb.SyncNotificationType_UNSYNCED,
+				Synced:           false,
+			}
+			_ = svr.Send(resp)
+		},
+		Synced: func() {
+			resp := &pb.SpvSyncResponse{
+				NotificationType: pb.SyncNotificationType_SYNCED,
+				Synced:           true,
+			}
+			_ = svr.Send(resp)
+		},
 		PeerConnected: func(peerCount int32) {
 			resp := &pb.SpvSyncResponse{
-				PeerCount: peerCount,
+				NotificationType: pb.SyncNotificationType_PEER_CONNECTED,
+				PeerInformation: &pb.PeerNotification{
+					PeerCount: peerCount,
+				},
 			}
 			_ = svr.Send(resp)
 		},
 		PeerDisconnected: func(peerCount int32) {
 			resp := &pb.SpvSyncResponse{
-				PeerCount: peerCount,
-			}
-			_ = svr.Send(resp)
-		},
-		FetchMissingCFilters: func(fetchedCfiltersCount int32) {
-			resp := &pb.SpvSyncResponse{
-				SyncingStatus: &pb.SpvSyncResponse_SyncingStatus{
-					FetchHeaders: &pb.SpvSyncResponse_SyncingStatus_FetchHeaders{
-						FetchedCfiltersCount: fetchedCfiltersCount,
-					},
+				NotificationType: pb.SyncNotificationType_PEER_DISCONNECTED,
+				PeerInformation: &pb.PeerNotification{
+					PeerCount: peerCount,
 				},
 			}
 			_ = svr.Send(resp)
 		},
-		FetchedHeaders: func(peerInitialHeight, lastHeaderHeight int32, lastHeaderTime int64) {
+		FetchMissingCFiltersStart: func() {
 			resp := &pb.SpvSyncResponse{
-				SyncingStatus: &pb.SpvSyncResponse_SyncingStatus{
-					FetchHeaders: &pb.SpvSyncResponse_SyncingStatus_FetchHeaders{
-						PeerInitialHeight: peerInitialHeight,
-						LastHeaderHeight:  lastHeaderHeight,
-						LastHeaderTime:    lastHeaderTime,
-					},
+				NotificationType: pb.SyncNotificationType_FETCHED_MISSING_CFILTERS_STARTED,
+			}
+			_ = svr.Send(resp)
+		},
+		FetchMissingCFiltersProgress: func(missingCFitlersStart, missingCFitlersEnd int32) {
+			resp := &pb.SpvSyncResponse{
+				NotificationType: pb.SyncNotificationType_FETCHED_MISSING_CFILTERS_PROGRESS,
+				FetchMissingCfilters: &pb.FetchMissingCFiltersNotification{
+					FetchedCfiltersStartHeight: missingCFitlersStart,
+					FetchedCfiltersEndHeight:   missingCFitlersEnd,
 				},
 			}
 			_ = svr.Send(resp)
 		},
-		Synced: func(sync bool) {
+		FetchMissingCFiltersFinished: func() {
 			resp := &pb.SpvSyncResponse{
-				// To signify a synced wallet we send a -1 peer count
-				PeerCount: int32(-1),
+				NotificationType: pb.SyncNotificationType_FETCHED_MISSING_CFILTERS_FINISHED,
 			}
-			// TODO: Add some kind of logging here.  Do nothing with the error
-			// for now. Could be nice to see what happened, but not super
-			// important.
 			_ = svr.Send(resp)
 		},
-		DiscoveredAddresses: func(finished bool) {
+		FetchHeadersStart: func() {
 			resp := &pb.SpvSyncResponse{
-				SyncingStatus: &pb.SpvSyncResponse_SyncingStatus{
-					DiscoveredAddresses: finished,
+				NotificationType: pb.SyncNotificationType_FETCHED_HEADERS_STARTED,
+			}
+			_ = svr.Send(resp)
+		},
+		FetchHeadersProgress: func(fetchedHeadersCount int32, lastHeaderTime int64) {
+			resp := &pb.SpvSyncResponse{
+				NotificationType: pb.SyncNotificationType_FETCHED_HEADERS_PROGRESS,
+				FetchHeaders: &pb.FetchHeadersNotification{
+					FetchedHeadersCount: fetchedHeadersCount,
+					LastHeaderTime:      lastHeaderTime,
 				},
+			}
+			_ = svr.Send(resp)
+		},
+		FetchHeadersFinished: func() {
+			resp := &pb.SpvSyncResponse{
+				NotificationType: pb.SyncNotificationType_FETCHED_HEADERS_FINISHED,
+			}
+			_ = svr.Send(resp)
+		},
+		DiscoverAddressesStart: func() {
+			resp := &pb.SpvSyncResponse{
+				NotificationType: pb.SyncNotificationType_DISCOVER_ADDRESSES_STARTED,
+			}
+			_ = svr.Send(resp)
+		},
+		DiscoverAddressesFinished: func() {
+			resp := &pb.SpvSyncResponse{
+				NotificationType: pb.SyncNotificationType_DISCOVER_ADDRESSES_FINISHED,
 			}
 
 			// Lock the wallet after the first time discovered while also
 			// discovering accounts.
-			if finished && lockWallet != nil {
+			if lockWallet != nil {
 				lockWallet()
 				lockWallet = nil
 			}
 			_ = svr.Send(resp)
 		},
+		RescanStart: func() {
+			resp := &pb.SpvSyncResponse{
+				NotificationType: pb.SyncNotificationType_RESCAN_STARTED,
+			}
+			_ = svr.Send(resp)
+		},
 		RescanProgress: func(rescannedThrough int32) {
 			resp := &pb.SpvSyncResponse{
-				SyncingStatus: &pb.SpvSyncResponse_SyncingStatus{
+				NotificationType: pb.SyncNotificationType_RESCAN_PROGRESS,
+				RescanProgress: &pb.RescanProgressNotification{
 					RescannedThrough: rescannedThrough,
 				},
+			}
+			_ = svr.Send(resp)
+		},
+		RescanFinished: func() {
+			resp := &pb.SpvSyncResponse{
+				NotificationType: pb.SyncNotificationType_RESCAN_FINISHED,
 			}
 			_ = svr.Send(resp)
 		},
