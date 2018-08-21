@@ -863,6 +863,8 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 	return nil
 }
 
+// MissingCFilterProgress records the first and last height of the progress
+// that was received and any errors that were received during the fetching.
 type MissingCFilterProgress struct {
 	Err              error
 	BlockHeightStart int32
