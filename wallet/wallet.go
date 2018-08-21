@@ -741,16 +741,14 @@ func (w *Wallet) CommittedTickets(tickets []*chainhash.Hash) ([]*chainhash.Hash,
 	return hashes, addresses, nil
 }
 
-// FetchMissingCFilters records any missing compact filters for main chain
-// blocks.  A database upgrade requires all compact filters to be recorded for
-// the main chain before any more blocks may be attached, but this information
-// must be fetched at runtime after the upgrade as it is not already known at
-// the time of upgrade.
-func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
-	const opf = "wallet.FetchMissingCFilters(%v)"
-
+// fetchMissingCFilters checks to see if there are any missing committed filters
+// then, if so requests them from the given peer.  The progress channel, if
+// non-nil, is sent the first height and last height of the range of filters
+// that were retrieved in that peer request.
+func (w *Wallet) fetchMissingCFilters(ctx context.Context, p Peer, progress chan<- MissingCFilterProgress) error {
 	var missing bool
 	var height int32
+
 	err := walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
 		var err error
 		missing = w.TxStore.IsMissingMainChainCFilters(dbtx)
@@ -760,8 +758,7 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 		return err
 	})
 	if err != nil {
-		op := errors.Opf(opf, p)
-		return errors.E(op, err)
+		return err
 	}
 	if !missing {
 		return nil
@@ -814,8 +811,7 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 			return nil
 		})
 		if err != nil {
-			op := errors.Opf(opf, p)
-			return errors.E(op, err)
+			return err
 		}
 		if !missing {
 			return nil
@@ -826,8 +822,7 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 
 		filters, err := p.GetCFilters(ctx, get)
 		if err != nil {
-			op := errors.Opf(opf, p)
-			return errors.E(op, err)
+			return err
 		}
 
 		err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
@@ -839,15 +834,33 @@ func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
 			return w.TxStore.InsertMissingCFilters(dbtx, get, filters)
 		})
 		if err != nil {
-			op := errors.Opf(opf, p)
-			return errors.E(op, err)
+			return err
 		}
 		if cont {
 			continue
 		}
 
+		if progress != nil {
+			progress <- MissingCFilterProgress{BlockHeightStart: height, BlockHeightEnd: height + span - 1}
+		}
 		log.Infof("Fetched cfilters for blocks %v-%v", height, height+span-1)
 	}
+}
+
+// FetchMissingCFilters records any missing compact filters for main chain
+// blocks.  A database upgrade requires all compact filters to be recorded for
+// the main chain before any more blocks may be attached, but this information
+// must be fetched at runtime after the upgrade as it is not already known at
+// the time of upgrade.
+func (w *Wallet) FetchMissingCFilters(ctx context.Context, p Peer) error {
+	const opf = "wallet.FetchMissingCFilters(%v)"
+
+	err := w.fetchMissingCFilters(ctx, p, nil)
+	if err != nil {
+		op := errors.Opf(opf, p)
+		return errors.E(op, err)
+	}
+	return nil
 }
 
 type MissingCFilterProgress struct {
@@ -867,105 +880,10 @@ func (w *Wallet) FetchMissingCFiltersWithProgress(ctx context.Context, p Peer, p
 
 	defer close(progress)
 
-	var missing bool
-	var height int32
-	err := walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
-		var err error
-		missing = w.TxStore.IsMissingMainChainCFilters(dbtx)
-		if missing {
-			height, err = w.TxStore.MissingCFiltersHeight(dbtx)
-		}
-		return err
-	})
+	err := w.fetchMissingCFilters(ctx, p, progress)
 	if err != nil {
 		op := errors.Opf(opf, p)
 		progress <- MissingCFilterProgress{Err: errors.E(op, err)}
-	}
-	if !missing {
-		return
-	}
-
-	const span = 2000
-	storage := make([]chainhash.Hash, span)
-	storagePtrs := make([]*chainhash.Hash, span)
-	for i := range storage {
-		storagePtrs[i] = &storage[i]
-	}
-	for {
-		if err := ctx.Err(); err != nil {
-			progress <- MissingCFilterProgress{Err: errors.E(err)}
-		}
-		var hashes []chainhash.Hash
-		var get []*chainhash.Hash
-		var cont bool
-		err := walletdb.View(w.db, func(dbtx walletdb.ReadTx) error {
-			ns := dbtx.ReadBucket(wtxmgrNamespaceKey)
-			var err error
-			missing = w.TxStore.IsMissingMainChainCFilters(dbtx)
-			if !missing {
-				return nil
-			}
-			hash, err := w.TxStore.GetMainChainBlockHashForHeight(ns, height)
-			if err != nil {
-				return err
-			}
-			_, err = w.TxStore.CFilter(dbtx, &hash)
-			if err == nil {
-				height += span
-				cont = true
-				return nil
-			}
-			storage = storage[:cap(storage)]
-			hashes, err = w.TxStore.GetMainChainBlockHashes(ns, &hash, true, storage)
-			if err != nil {
-				return err
-			}
-			if len(hashes) == 0 {
-				const op errors.Op = "udb.GetMainChainBlockHashes"
-				return errors.E(op, errors.Bug, "expected over 0 results")
-			}
-			get = storagePtrs[:len(hashes)]
-			if get[0] != &hashes[0] {
-				const op errors.Op = "udb.GetMainChainBlockHashes"
-				return errors.E(op, errors.Bug, "unexpected slice reallocation")
-			}
-			return nil
-		})
-		if err != nil {
-			op := errors.Opf(opf, p)
-			progress <- MissingCFilterProgress{Err: errors.E(op, err)}
-		}
-		if !missing {
-			return
-		}
-		if cont {
-			continue
-		}
-
-		filters, err := p.GetCFilters(ctx, get)
-		if err != nil {
-			op := errors.Opf(opf, p)
-			progress <- MissingCFilterProgress{Err: errors.E(op, err)}
-		}
-
-		err = walletdb.Update(w.db, func(dbtx walletdb.ReadWriteTx) error {
-			_, err := w.TxStore.CFilter(dbtx, get[len(get)-1])
-			if err == nil {
-				cont = true
-				return nil
-			}
-			return w.TxStore.InsertMissingCFilters(dbtx, get, filters)
-		})
-		if err != nil {
-			op := errors.Opf(opf, p)
-			progress <- MissingCFilterProgress{Err: errors.E(op, err)}
-		}
-		if cont {
-			continue
-		}
-
-		progress <- MissingCFilterProgress{BlockHeightStart: height, BlockHeightEnd: height + span - 1}
-		log.Infof("Fetched cfilters for blocks %v-%v", height, height+span-1)
 	}
 }
 
