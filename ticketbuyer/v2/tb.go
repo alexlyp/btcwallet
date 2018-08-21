@@ -170,6 +170,11 @@ func (tb *TB) buy(ctx context.Context, passphrase []byte, tip *chainhash.Hash) e
 	if err != nil {
 		return err
 	}
+	var threshold = dcrutil.Amount(3300000000000)
+	if bal.LockedByTickets > threshold {
+		log.Warnf("LockedByTickets: %v is above %v", bal.LockedByTickets, threshold)
+		return nil
+	}
 	spendable := bal.Spendable
 	if spendable < maintain {
 		log.Debugf("Skipping purchase: low available balance")
