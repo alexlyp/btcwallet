@@ -1179,8 +1179,13 @@ func (s *Syncer) startupSync(ctx context.Context, rp *p2p.RemotePeer) error {
 			s.loadedFilters = true
 
 			s.rescanStart()
+
+			rescanBlock, err := s.wallet.BlockHeader(rescanPoint)
+			if err != nil {
+				return err
+			}
 			progress := make(chan wallet.RescanProgress, 1)
-			go s.wallet.RescanProgressFromHash(ctx, s, rescanPoint, progress)
+			go s.wallet.RescanProgressFromHeight(ctx, s, int32(rescanBlock.Height), progress)
 
 			for p := range progress {
 				if p.Err != nil {
