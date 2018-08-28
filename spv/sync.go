@@ -1057,7 +1057,7 @@ func (s *Syncer) getHeaders(ctx context.Context, rp *p2p.RemotePeer) error {
 			s.locatorMu.Unlock()
 			continue
 		}
-		s.fetchHeadersProgress(int32(added), headers[len(headers)-1].Timestamp.UnixNano())
+		s.fetchHeadersProgress(int32(added), headers[len(headers)-1].Timestamp.Unix())
 		log.Debugf("Fetched %d new header(s) ending at height %d from %v",
 			added, nodes[len(nodes)-1].Header.Height, rp)
 
