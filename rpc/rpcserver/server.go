@@ -2380,20 +2380,22 @@ func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderServic
 			}
 			_ = svr.Send(resp)
 		},
-		PeerConnected: func(peerCount int32) {
+		PeerConnected: func(peerCount int32, addr string) {
 			resp := &pb.SpvSyncResponse{
 				NotificationType: pb.SyncNotificationType_PEER_CONNECTED,
 				PeerInformation: &pb.PeerNotification{
 					PeerCount: peerCount,
+					Address:   addr,
 				},
 			}
 			_ = svr.Send(resp)
 		},
-		PeerDisconnected: func(peerCount int32) {
+		PeerDisconnected: func(peerCount int32, addr string) {
 			resp := &pb.SpvSyncResponse{
 				NotificationType: pb.SyncNotificationType_PEER_DISCONNECTED,
 				PeerInformation: &pb.PeerNotification{
 					PeerCount: peerCount,
+					Address:   addr,
 				},
 			}
 			_ = svr.Send(resp)

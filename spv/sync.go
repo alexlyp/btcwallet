@@ -80,8 +80,8 @@ type Syncer struct {
 // be used to update the rpc streams for syncing.
 type Notifications struct {
 	Synced                       func(sync bool)
-	PeerConnected                func(peerCount int32)
-	PeerDisconnected             func(peerCount int32)
+	PeerConnected                func(peerCount int32, addr string)
+	PeerDisconnected             func(peerCount int32, addr string)
 	FetchMissingCFiltersStarted  func()
 	FetchMissingCFiltersProgress func(startCFiltersHeight, endCFiltersHeight int32)
 	FetchMissingCFiltersFinished func()
@@ -141,16 +141,16 @@ func (s *Syncer) unsynced() {
 }
 
 // peerConnected updates the notification for peer count, if set.
-func (s *Syncer) peerConnected(remotesCount int) {
+func (s *Syncer) peerConnected(remotesCount int, addr string) {
 	if s.notifications != nil && s.notifications.PeerConnected != nil {
-		s.notifications.PeerConnected(int32(remotesCount))
+		s.notifications.PeerConnected(int32(remotesCount), addr)
 	}
 }
 
 // peerDisconnected updates the notification for peer count, if set.
-func (s *Syncer) peerDisconnected(remotesCount int) {
+func (s *Syncer) peerDisconnected(remotesCount int, addr string) {
 	if s.notifications != nil && s.notifications.PeerDisconnected != nil {
-		s.notifications.PeerDisconnected(int32(remotesCount))
+		s.notifications.PeerDisconnected(int32(remotesCount), addr)
 	}
 }
 
@@ -335,7 +335,7 @@ func (s *Syncer) connectToPersistent(ctx context.Context, raddr string) error {
 			s.remotes[k] = rp
 			n := len(s.remotes)
 			s.remotesMu.Unlock()
-			s.peerConnected(n)
+			s.peerConnected(n, k)
 
 			wait := make(chan struct{})
 			go func() {
@@ -351,7 +351,7 @@ func (s *Syncer) connectToPersistent(ctx context.Context, raddr string) error {
 			delete(s.remotes, k)
 			n = len(s.remotes)
 			s.remotesMu.Unlock()
-			s.peerDisconnected(n)
+			s.peerDisconnected(n, k)
 			<-wait
 			if ctx.Err() != nil {
 				return
