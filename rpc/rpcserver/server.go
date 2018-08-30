@@ -2347,6 +2347,7 @@ func (s *loaderServer) FetchMissingCFilters(ctx context.Context, req *pb.FetchMi
 func (s *loaderServer) RpcSync(req *pb.RpcSyncRequest, svr pb.WalletLoaderService_RpcSyncServer) error {
 	defer zero.Bytes(req.Password)
 
+	// XXX: Do it need to lock here like StartConsensusRpc
 	defer s.mu.Unlock()
 	s.mu.Lock()
 
@@ -2367,6 +2368,25 @@ func (s *loaderServer) RpcSync(req *pb.RpcSyncRequest, svr pb.WalletLoaderServic
 		if err == nil {
 			return status.Errorf(codes.FailedPrecondition, "wallet is loaded and already synchronizing")
 		}
+	}
+
+	if req.DiscoverAccounts && len(req.PrivatePassphrase) == 0 {
+		return status.Errorf(codes.InvalidArgument, "private passphrase is required for discovering accounts")
+	}
+	var lockWallet func()
+	if req.DiscoverAccounts {
+		lock := make(chan time.Time, 1)
+		lockWallet = func() {
+			lock <- time.Time{}
+			zero.Bytes(req.PrivatePassphrase)
+		}
+		err := wallet.Unlock(req.PrivatePassphrase, lock)
+		if err != nil {
+			return translateError(err)
+		}
+	}
+	if lockWallet != nil {
+		defer lockWallet()
 	}
 
 	rpcClient, err := chain.NewRPCClient(s.activeNet.Params, networkAddress, req.Username,
