@@ -2344,6 +2344,72 @@ func (s *loaderServer) FetchMissingCFilters(ctx context.Context, req *pb.FetchMi
 	return &pb.FetchMissingCFiltersResponse{}, nil
 }
 
+func (s *loaderServer) RpcSync(req *pb.RpcSyncRequest, svr pb.WalletLoaderService_RpcSyncServer) error {
+	defer zero.Bytes(req.Password)
+
+	defer s.mu.Unlock()
+	s.mu.Lock()
+
+	if s.rpcClient != nil {
+		return status.Errorf(codes.FailedPrecondition, "RPC client already created")
+	}
+
+	networkAddress, err := cfgutil.NormalizeAddress(req.NetworkAddress,
+		s.activeNet.JSONRPCClientPort)
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "Network address is ill-formed: %v", err)
+	}
+
+	// Error if the wallet is already syncing with the network.
+	wallet, walletLoaded := s.loader.LoadedWallet()
+	if walletLoaded {
+		_, err := wallet.NetworkBackend()
+		if err == nil {
+			return status.Errorf(codes.FailedPrecondition, "wallet is loaded and already synchronizing")
+		}
+	}
+
+	rpcClient, err := chain.NewRPCClient(s.activeNet.Params, networkAddress, req.Username,
+		string(req.Password), req.Certificate, len(req.Certificate) == 0)
+	if err != nil {
+		return translateError(err)
+	}
+
+	err = rpcClient.Start(svr.Context(), false)
+	if err != nil {
+		if err == rpcclient.ErrInvalidAuth {
+			return status.Errorf(codes.InvalidArgument, "Invalid RPC credentials: %v", err)
+		}
+		return status.Errorf(codes.NotFound, "Connection to RPC server failed: %v", err)
+	}
+
+	s.rpcClient = rpcClient
+	s.loader.SetNetworkBackend(chain.BackendFromRPCClient(rpcClient.Client))
+
+	n := chain.BackendFromRPCClient(s.rpcClient.Client)
+	wallet.SetNetworkBackend(n)
+	s.loader.SetNetworkBackend(n)
+
+	// Run wallet synchronization until it is cancelled or errors.  If the
+	// context was cancelled, return immediately instead of trying to
+	// reconnect.
+	syncer := chain.NewRPCSyncer(wallet, s.rpcClient)
+	err = syncer.Run(svr.Context(), true)
+	if errors.Match(errors.E(context.Canceled), err) {
+		return status.Errorf(codes.Canceled, "Wallet synchronization canceled: %v", err)
+	}
+	if err != nil {
+		return status.Errorf(codes.Unknown, "Wallet synchronization stopped: %v", err)
+	}
+
+	// Disassociate the RPC client from all subsystems until reconnection
+	// occurs.
+	wallet.SetNetworkBackend(nil)
+	s.loader.SetNetworkBackend(nil)
+	s.loader.StopTicketPurchase()
+	return nil
+}
+
 func (s *loaderServer) SpvSync(req *pb.SpvSyncRequest, svr pb.WalletLoaderService_SpvSyncServer) error {
 	wallet, ok := s.loader.LoadedWallet()
 	if !ok {
