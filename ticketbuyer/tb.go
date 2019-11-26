@@ -217,8 +217,6 @@ func (tb *TB) buy(ctx context.Context, passphrase []byte, tip *wire.BlockHeader,
 	account := tb.cfg.Account
 	maintain := tb.cfg.Maintain
 	votingAddr := tb.cfg.VotingAddr
-	poolFeeAddr := tb.cfg.PoolFeeAddr
-	poolFees := tb.cfg.PoolFees
 	limit := tb.cfg.Limit
 	csppServer := tb.cfg.CSPPServer
 	dialCSPPServer := tb.cfg.DialCSPPServer
@@ -256,11 +254,6 @@ func (tb *TB) buy(ctx context.Context, passphrase []byte, tip *wire.BlockHeader,
 		buy = limit
 	}
 
-	if poolFeeAddr != nil {
-		_ = poolFees
-		log.Errorf("Stakepool ticket buying is not yet implemented on this branch")
-		return nil
-	}
 	tix, err := w.PurchaseTicketsContext(ctx, n, &wallet.PurchaseTicketsRequest{
 		Count:         buy,
 		SourceAccount: account,
