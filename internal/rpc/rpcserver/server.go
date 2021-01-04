@@ -151,6 +151,7 @@ type walletServer struct {
 	ready          uint32 // atomic
 	wallet         *wallet.Wallet
 	dialCSPPServer func(ctx context.Context, network, addr string) (net.Conn, error)
+	vspClients     map[string]*vsp.Client
 }
 
 // loaderServer provides RPC clients with the ability to load and close wallets,
@@ -291,6 +292,7 @@ func StartWalletService(server *grpc.Server, wallet *wallet.Wallet, dialCSPP dia
 	}
 	walletService.wallet = wallet
 	walletService.dialCSPPServer = dialCSPP
+	walletService.vspClients = make(map[string]*vsp.Client)
 }
 
 func (s *walletServer) checkReady() bool {
@@ -1627,7 +1629,7 @@ func (s *walletServer) PurchaseTickets(ctx context.Context,
 	// new vspd request
 	var vspHost string
 	var vspPubKey string
-	var vspServer *vsp.VSP
+	var vspClient *vsp.Client
 	if req.VspHost != "" || req.VspPubkey != "" {
 		vspHost = req.VspHost
 		vspPubKey = req.VspPubkey
@@ -1638,16 +1640,17 @@ func (s *walletServer) PurchaseTickets(ctx context.Context,
 			return nil, status.Errorf(codes.InvalidArgument, "vsp host can not be null")
 		}
 		cfg := vsp.Config{
-			URL:             vspHost,
-			PubKey:          vspPubKey,
-			PurchaseAccount: req.Account,
-			ChangeAccount:   req.ChangeAccount,
-			MaxFee:          0.1e8,
-			Dialer:          nil,
-			Wallet:          s.wallet,
-			Params:          params,
+			URL:    vspHost,
+			PubKey: vspPubKey,
+			Dialer: nil,
+			Wallet: s.wallet,
+			// XXX
+			// PurchaseAccount: req.Account,
+			// ChangeAccount:   req.ChangeAccount,
+			// MaxFee:          0.1e8,
+			// Params:          params,
 		}
-		vspServer, err = vsp.New(ctx, cfg)
+		vspClient, err = vsp.New(cfg)
 		if err != nil {
 			return nil, status.Errorf(codes.Unknown, "VSP Server instance failed to start: %v", err)
 		}
@@ -1737,9 +1740,9 @@ func (s *walletServer) PurchaseTickets(ctx context.Context,
 		ChangeAccount:      changeAccount,
 	}
 
-	if vspServer != nil {
-		request.VSPFeePaymentProcess = vspServer.Process
-		request.VSPFeeProcess = vspServer.PoolFee
+	if vspClient != nil {
+		request.VSPFeePaymentProcess = vspClient.Process
+		request.VSPFeeProcess = vspClient.FeePercentage
 	}
 
 	// If dontSignTx is false we unlock the wallet so we can sign the tx.
@@ -2518,7 +2521,7 @@ func (t *ticketbuyerV2Server) RunTicketBuyer(req *pb.RunTicketBuyerRequest, svr 
 	// new vspd request
 	var vspHost string
 	var vspPubKey string
-	var vspServer *vsp.VSP
+	var vspClient *vsp.Client
 	if req.VspHost != "" || req.VspPubkey != "" {
 		vspHost = req.VspHost
 		vspPubKey = req.VspPubkey
@@ -2529,16 +2532,17 @@ func (t *ticketbuyerV2Server) RunTicketBuyer(req *pb.RunTicketBuyerRequest, svr 
 			return status.Errorf(codes.InvalidArgument, "vsp host can not be null")
 		}
 		cfg := vsp.Config{
-			URL:             vspHost,
-			PubKey:          vspPubKey,
-			PurchaseAccount: req.Account,
-			ChangeAccount:   req.Account,
-			MaxFee:          0.1e8,
-			Dialer:          nil,
-			Wallet:          wallet,
-			Params:          params,
+			URL:    vspHost,
+			PubKey: vspPubKey,
+			Dialer: nil,
+			Wallet: wallet,
+			// XXX
+			// PurchaseAccount: req.Account,
+			// ChangeAccount:   req.Account,
+			// MaxFee:          0.1e8,
+			// Params:          params,
 		}
-		vspServer, err = vsp.New(svr.Context(), cfg)
+		vspClient, err = vsp.New(cfg)
 		if err != nil {
 			return status.Errorf(codes.Unknown, "TicketBuyerV3 instance failed to start. Error: %v", err)
 		}
@@ -2596,7 +2600,7 @@ func (t *ticketbuyerV2Server) RunTicketBuyer(req *pb.RunTicketBuyerRequest, svr 
 		c.VotingAddr = votingAddress
 		c.PoolFeeAddr = poolAddress
 		c.PoolFees = req.PoolFees
-		c.VSP = vspServer
+		c.VSP = vspClient
 		c.MixedAccount = mixedAccount
 		c.MixChange = mixedChange
 		c.CSPPServer = csppServer
@@ -3727,23 +3731,25 @@ func (s *walletServer) SyncVSPFailedTickets(ctx context.Context, req *pb.SyncVSP
 		return nil, status.Errorf(codes.InvalidArgument, "vsp host can not be null")
 	}
 	cfg := vsp.Config{
-		URL:             vspHost,
-		PubKey:          vspPubKey,
-		PurchaseAccount: req.Account,
-		ChangeAccount:   req.Account,
-		MaxFee:          0.1e8,
-		Dialer:          nil,
-		Wallet:          s.wallet,
-		Params:          s.wallet.ChainParams(),
+		URL:    vspHost,
+		PubKey: vspPubKey,
+		Dialer: nil,
+		Wallet: s.wallet,
+		// XXX
+		//PurchaseAccount: req.Account,
+		//ChangeAccount:   req.Account,
+		//MaxFee:          0.1e8,
+		//Params:          s.wallet.ChainParams(),
 	}
-	vspServer, err := vsp.New(ctx, cfg)
+	vspClient, err := vsp.New(cfg)
 	if err != nil {
 		return nil, status.Errorf(codes.Unknown, "TicketBuyerV3 instance failed to start. Error: %v", err)
 	}
 
 	// process tickets fee if needed.
 	for _, ticketHash := range failedTicketsFee {
-		_, err := vspServer.Process(ctx, ticketHash, nil)
+		feeTx := new(wire.MsgTx)
+		err := vspClient.Process(ctx, &ticketHash, feeTx)
 		if err != nil {
 			// if it fails to process again, we log it and continue with
 			// the wallet start.
