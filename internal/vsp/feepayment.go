@@ -632,7 +632,18 @@ func (fp *feePayment) submitPayment() error {
 		voteChoices[agendaChoice.AgendaID] = agendaChoice.ChoiceID
 	}
 
-	// XXX requires fp.votingKey != ""
+	fp.mu.Lock()
+	votingKey := fp.votingKey
+	fp.mu.Unlock()
+	if votingKey == "" {
+		votingKey, err = w.DumpWIFPrivateKey(ctx, fp.votingAddr)
+		if err != nil {
+			return err
+		}
+		fp.mu.Lock()
+		fp.votingKey = votingKey
+		fp.mu.Unlock()
+	}
 
 	var payfeeResponse struct {
 		Timestamp int64           `json:"timestamp"`
@@ -648,7 +659,7 @@ func (fp *feePayment) submitPayment() error {
 		Timestamp:   time.Now().Unix(),
 		TicketHash:  fp.ticketHash.String(),
 		FeeTx:       txMarshaler(feeTx),
-		VotingKey:   fp.votingKey,
+		VotingKey:   votingKey,
 		VoteChoices: voteChoices,
 	})
 	if err != nil {
