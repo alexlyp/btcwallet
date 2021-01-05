@@ -76,6 +76,7 @@ type feePayment struct {
 	// Policy
 	maxFee     dcrutil.Amount
 	changeAcct uint32
+	feeAcct    uint32
 
 	// Requires locking for all access outside of Client.feePayment
 	mu            sync.Mutex
@@ -384,6 +385,29 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 	fee = fp.fee
 	feeAddr := fp.feeAddr
 	fp.mu.Unlock()
+
+	// Reserve new outputs to pay the fee if outputs have not already been
+	// reserved.  This will the the case for fee payments that were begun on
+	// already purchased tickets, where the caller did not ensure that fee
+	// outputs would already be reserved.
+	if len(fpFeeTx.TxIn) == 0 {
+		const minconf = 1
+		inputs, err := w.ReserveOutputsForAmount(ctx, fp.feeAcct, fee, minconf)
+		if err != nil {
+			return fmt.Errorf("unable to reserve enough output value to "+
+				"pay VSP fee for ticket %v: %w", fp.ticketHash, err)
+		}
+		for _, in := range inputs {
+			tx.AddTxIn(wire.NewTxIn(&in.OutPoint, in.PrevOut.Value, nil))
+		}
+		// The transaction will be added to the wallet in an unpublished
+		// state, so there is no need to leave the outputs locked.
+		defer func() {
+			for _, in := range inputs {
+				w.UnlockOutpoint(&in.OutPoint.Hash, in.OutPoint.Index)
+			}
+		}()
+	}
 
 	var input int64
 	for _, in := range tx.TxIn {
