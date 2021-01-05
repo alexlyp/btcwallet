@@ -2532,13 +2532,15 @@ func (t *ticketbuyerV2Server) RunTicketBuyer(req *pb.RunTicketBuyerRequest, svr 
 			return status.Errorf(codes.InvalidArgument, "vsp host can not be null")
 		}
 		cfg := vsp.Config{
-			URL:           vspHost,
-			PubKey:        vspPubKey,
-			Dialer:        nil,
-			Wallet:        wallet,
-			MaxFee:        0.1e8,
-			FeeAccount:    req.Account,
-			ChangeAccount: req.Account,
+			URL:    vspHost,
+			PubKey: vspPubKey,
+			Dialer: nil,
+			Wallet: wallet,
+			Policy: vsp.Policy{
+				MaxFee:     0.1e8,
+				FeeAcct:    req.Account,
+				ChangeAcct: req.Account,
+			},
 		}
 		vspClient, err = vsp.New(cfg) // XXX create lazily
 		if err != nil {
@@ -3729,13 +3731,15 @@ func (s *walletServer) SyncVSPFailedTickets(ctx context.Context, req *pb.SyncVSP
 		return nil, status.Errorf(codes.InvalidArgument, "vsp host can not be null")
 	}
 	cfg := vsp.Config{
-		URL:             vspHost,
-		PubKey:          vspPubKey,
-		Dialer:          nil,
-		Wallet:          s.wallet,
-		MaxFee:          0.1e8,
-		PurchaseAccount: req.Account,
-		ChangeAccount:   req.Account,
+		URL:    vspHost,
+		PubKey: vspPubKey,
+		Dialer: nil,
+		Wallet: s.wallet,
+		Policy: vsp.Policy{
+			MaxFee:     0.1e8,
+			FeeAcct:    req.Account,
+			ChangeAcct: req.Account,
+		},
 	}
 	vspClient, err := vsp.New(cfg) // XXX create lazily
 	if err != nil {
