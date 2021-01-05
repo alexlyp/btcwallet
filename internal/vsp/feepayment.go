@@ -618,6 +618,7 @@ func (fp *feePayment) submitPayment() (err error) {
 	// submitting a payment requires the fee tx to already be created.
 	fp.mu.Lock()
 	feeTx := fp.feeTx
+	votingKey := fp.votingKey
 	fp.mu.Unlock()
 	if feeTx == nil {
 		feeTx = new(wire.MsgTx)
@@ -628,6 +629,15 @@ func (fp *feePayment) submitPayment() (err error) {
 			return err
 		}
 	}
+	if votingKey == "" {
+		votingKey, err = w.DumpWIFPrivateKey(ctx, fp.votingAddr)
+		if err != nil {
+			return err
+		}
+		fp.mu.Lock()
+		fp.votingKey = votingKey
+		fp.mu.Unlock()
+	}
 
 	// Retrieve voting preferences
 	voteChoices := make(map[string]string)
@@ -637,19 +647,6 @@ func (fp *feePayment) submitPayment() (err error) {
 	}
 	for _, agendaChoice := range agendaChoices {
 		voteChoices[agendaChoice.AgendaID] = agendaChoice.ChoiceID
-	}
-
-	fp.mu.Lock()
-	votingKey := fp.votingKey
-	fp.mu.Unlock()
-	if votingKey == "" {
-		votingKey, err = w.DumpWIFPrivateKey(ctx, fp.votingAddr)
-		if err != nil {
-			return err
-		}
-		fp.mu.Lock()
-		fp.votingKey = votingKey
-		fp.mu.Unlock()
 	}
 
 	var payfeeResponse struct {
