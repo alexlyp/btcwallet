@@ -1644,13 +1644,13 @@ func (s *walletServer) PurchaseTickets(ctx context.Context,
 			PubKey: vspPubKey,
 			Dialer: nil,
 			Wallet: s.wallet,
-			// XXX
-			// PurchaseAccount: req.Account,
-			// ChangeAccount:   req.ChangeAccount,
-			// MaxFee:          0.1e8,
-			// Params:          params,
+			Policy: vsp.Policy{
+				MaxFee:     0.1e8,
+				FeeAcct:    req.Account,
+				ChangeAcct: req.ChangeAccount,
+			},
 		}
-		vspClient, err = vsp.New(cfg)
+		vspClient, err = vsp.New(cfg) // XXX create lazily
 		if err != nil {
 			return nil, status.Errorf(codes.Unknown, "VSP Server instance failed to start: %v", err)
 		}
@@ -2532,17 +2532,15 @@ func (t *ticketbuyerV2Server) RunTicketBuyer(req *pb.RunTicketBuyerRequest, svr 
 			return status.Errorf(codes.InvalidArgument, "vsp host can not be null")
 		}
 		cfg := vsp.Config{
-			URL:    vspHost,
-			PubKey: vspPubKey,
-			Dialer: nil,
-			Wallet: wallet,
-			// XXX
-			// PurchaseAccount: req.Account,
-			// ChangeAccount:   req.Account,
-			// MaxFee:          0.1e8,
-			// Params:          params,
+			URL:           vspHost,
+			PubKey:        vspPubKey,
+			Dialer:        nil,
+			Wallet:        wallet,
+			MaxFee:        0.1e8,
+			FeeAccount:    req.Account,
+			ChangeAccount: req.Account,
 		}
-		vspClient, err = vsp.New(cfg)
+		vspClient, err = vsp.New(cfg) // XXX create lazily
 		if err != nil {
 			return status.Errorf(codes.Unknown, "TicketBuyerV3 instance failed to start. Error: %v", err)
 		}
@@ -3731,17 +3729,15 @@ func (s *walletServer) SyncVSPFailedTickets(ctx context.Context, req *pb.SyncVSP
 		return nil, status.Errorf(codes.InvalidArgument, "vsp host can not be null")
 	}
 	cfg := vsp.Config{
-		URL:    vspHost,
-		PubKey: vspPubKey,
-		Dialer: nil,
-		Wallet: s.wallet,
-		// XXX
-		//PurchaseAccount: req.Account,
-		//ChangeAccount:   req.Account,
-		//MaxFee:          0.1e8,
-		//Params:          s.wallet.ChainParams(),
+		URL:             vspHost,
+		PubKey:          vspPubKey,
+		Dialer:          nil,
+		Wallet:          s.wallet,
+		MaxFee:          0.1e8,
+		PurchaseAccount: req.Account,
+		ChangeAccount:   req.Account,
 	}
-	vspClient, err := vsp.New(cfg)
+	vspClient, err := vsp.New(cfg) // XXX create lazily
 	if err != nil {
 		return nil, status.Errorf(codes.Unknown, "TicketBuyerV3 instance failed to start. Error: %v", err)
 	}
