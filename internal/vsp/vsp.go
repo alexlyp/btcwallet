@@ -222,10 +222,5 @@ func (c *Client) ProcessWithPolicy(ctx context.Context, ticketHash *chainhash.Ha
 		return err
 	}
 	*feeTx = *fp.feeTx
-	err = fp.submitPayment()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return fp.submitPayment()
 }

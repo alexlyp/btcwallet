@@ -1693,7 +1693,6 @@ func (w *Wallet) purchaseTickets(ctx context.Context, op errors.Op,
 			for _, in := range vspFeeCredits[i] {
 				feeTx.AddTxIn(wire.NewTxIn(&in.OutPoint, in.PrevOut.Value, nil))
 			}
-			// XXX add fee tx to db in unpublished state
 
 			err = req.VSPFeePaymentProcess(ctx, ticketHash, feeTx)
 			if err != nil {
