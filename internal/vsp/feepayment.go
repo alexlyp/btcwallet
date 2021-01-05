@@ -737,7 +737,7 @@ func (fp *feePayment) confirmPayment() error {
 	// stop processing if ticket is expired or spent
 	if fp.removedExpiredOrSpent() {
 		// nothing scheduled
-		return nil
+		return errStopped
 	}
 
 	status, err := fp.status(ctx)
