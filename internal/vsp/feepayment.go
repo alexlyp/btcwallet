@@ -409,7 +409,7 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 		return nil
 	} else {
 		fp.mu.Lock()
-		fp.FeeTx = tx
+		fp.feeTx = tx
 		fpFeeTx = tx
 		fp.mu.Unlock()
 	}
