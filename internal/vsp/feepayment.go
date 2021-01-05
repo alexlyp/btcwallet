@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"decred.org/dcrwallet/errors"
 	"decred.org/dcrwallet/internal/uniformprng"
 	"decred.org/dcrwallet/wallet"
 	"decred.org/dcrwallet/wallet/txrules"
@@ -84,7 +85,7 @@ type feePayment struct {
 	fee           dcrutil.Amount
 	feeAddr       dcrutil.Address
 	feeTx         *wire.MsgTx
-	votingKey     *dcrutil.WIF // XXX not set anywherex
+	votingKey     string
 	state         state
 	err           error
 
@@ -183,6 +184,13 @@ func (c *Client) feePayment(ticketHash *chainhash.Hash) (fp *feePayment) {
 	fp.votingAddr, fp.commitmentAddr, err = parseTicket(ticket, params)
 	if err != nil {
 		log.Errorf("%v is not a ticket: %v", ticketHash, err)
+		return nil
+	}
+	// Try to access the voting key, ignore error unless the wallet is
+	// locked.
+	fp.votingKey, err = w.DumpWIFPrivateKey(ctx, fp.votingAddr)
+	if err != nil && !errors.Is(err, errors.Locked) {
+		log.Errorf("no voting key for ticket %v: %v", ticketHash, err)
 		return nil
 	}
 
@@ -594,6 +602,8 @@ func (fp *feePayment) submitPayment() error {
 		voteChoices[agendaChoice.AgendaID] = agendaChoice.ChoiceID
 	}
 
+	// XXX requires fp.votingKey != ""
+
 	var payfeeResponse struct {
 		Timestamp int64           `json:"timestamp"`
 		Request   json.RawMessage `json:"request"`
@@ -608,7 +618,7 @@ func (fp *feePayment) submitPayment() error {
 		Timestamp:   time.Now().Unix(),
 		TicketHash:  fp.ticketHash.String(),
 		FeeTx:       txMarshaler(feeTx),
-		VotingKey:   fp.votingKey.String(),
+		VotingKey:   fp.votingKey,
 		VoteChoices: voteChoices,
 	})
 	if err != nil {
