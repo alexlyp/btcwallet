@@ -68,22 +68,25 @@ type feePayment struct {
 	client *Client
 	ctx    context.Context
 
+	// Set at feepayment creation and never changes
 	ticketHash     chainhash.Hash
 	commitmentAddr dcrutil.Address
 	votingAddr     dcrutil.Address
-	ticketLive     int32
-	ticketExpires  int32
-
-	feeHash   chainhash.Hash
-	fee       dcrutil.Amount
-	feeAddr   dcrutil.Address
-	feeTx     *wire.MsgTx
-	votingKey *dcrutil.WIF
-	state     state
-	err       error
-
+	// Policy
 	maxFee     dcrutil.Amount
 	changeAcct uint32
+
+	// Requires locking for all access outside of Client.feePayment
+	mu            sync.Mutex
+	ticketLive    int32
+	ticketExpires int32
+	feeHash       chainhash.Hash
+	fee           dcrutil.Amount
+	feeAddr       dcrutil.Address
+	feeTx         *wire.MsgTx
+	votingKey     *dcrutil.WIF // XXX not set anywherex
+	state         state
+	err           error
 
 	timerMu sync.Mutex
 	timer   *time.Timer
@@ -173,8 +176,8 @@ func (c *Client) feePayment(ticketHash *chainhash.Hash) (fp *feePayment) {
 	if ticketHeight >= 2 {
 		// Note the off-by-one; this is correct.  Tickets become live
 		// one block after the params would indicate.
-		fp.ticketLive = ticketHeight + params.TicketMaturity + 1
-		fp.ticketExpires = fp.ticketLive + params.TicketExpiry
+		fp.ticketLive = ticketHeight + int32(params.TicketMaturity) + 1
+		fp.ticketExpires = fp.ticketLive + int32(params.TicketExpiry)
 	}
 
 	fp.votingAddr, fp.commitmentAddr, err = parseTicket(ticket, params)
@@ -226,6 +229,8 @@ func (c *Client) tx(ctx context.Context, hash *chainhash.Hash) (*wire.MsgTx, err
 // Schedule a method to be executed.
 // Any currently-scheduled method is replaced.
 func (fp *feePayment) schedule(name string, method func() error) {
+	delay := fp.next()
+
 	fp.timerMu.Lock()
 	defer fp.timerMu.Unlock()
 	if fp.timer != nil {
@@ -233,12 +238,14 @@ func (fp *feePayment) schedule(name string, method func() error) {
 		fp.timer = nil
 	}
 	if method != nil {
-		fp.timer = time.AfterFunc(fp.next(), fp.task(name, method))
+		fp.timer = time.AfterFunc(delay, fp.task(name, method))
 	}
 }
 
 func (fp *feePayment) next() time.Duration {
 	_, tipHeight := fp.client.Wallet.MainChainTip(fp.ctx)
+
+	fp.mu.Lock()
 	var jitter time.Duration
 	// This liveness check requires the ticket to already be mined.
 	switch {
@@ -247,6 +254,8 @@ func (fp *feePayment) next() time.Duration {
 	case tipHeight < fp.ticketExpires:
 		jitter = liveJitter
 	}
+	fp.mu.Unlock()
+
 	return prng.duration(jitter)
 }
 
@@ -256,8 +265,9 @@ func (fp *feePayment) next() time.Duration {
 func (fp *feePayment) task(name string, method func() error) func() {
 	return func() {
 		err := method()
-		// XXX locking
+		fp.mu.Lock()
 		fp.err = err
+		fp.mu.Unlock()
 		if err != nil {
 			log.Errorf("ticket %v: %v: %v", &fp.ticketHash, name, err)
 		}
@@ -342,13 +352,18 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 	ctx := fp.ctx
 	w := fp.client.Wallet
 
-	if fp.feeTx != nil {
-		*tx = *fp.feeTx
+	fp.mu.Lock()
+	fpFeeTx := fp.feeTx
+	fee := fp.fee
+	fp.mu.Unlock()
+
+	if fpFeeTx != nil {
+		*tx = *fpFeeTx
 		return nil
 	}
 
 	// XXX fp.fee == -1?
-	if fp.fee == 0 {
+	if fee == 0 {
 		// XXX locking
 		// this schedules paying the fee
 		err := fp.receiveFeeAddress()
@@ -357,20 +372,25 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 		}
 	}
 
+	fp.mu.Lock()
+	fee = fp.fee
+	feeAddr := fp.feeAddr
+	fp.mu.Unlock()
+
 	var input int64
 	for _, in := range tx.TxIn {
 		input += in.ValueIn
 	}
-	if input < int64(fp.fee) {
+	if input < int64(fee) {
 		err := fmt.Errorf("not enough input value to pay fee: %v < %v",
-			dcrutil.Amount(input), fp.fee)
+			dcrutil.Amount(input), fee)
 		return err
 	}
 
-	feeScript, err := txscript.PayToAddrScript(fp.feeAddr)
+	feeScript, err := txscript.PayToAddrScript(feeAddr)
 	if err != nil {
 		log.Warnf("failed to generate pay to addr script for %v: %v",
-			fp.feeAddr, err)
+			feeAddr, err)
 		return err
 	}
 
@@ -388,7 +408,7 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 		return fmt.Errorf("failed to convert '%T' to wallet.Address", addr)
 	}
 
-	tx.TxOut = append(tx.TxOut[:0], wire.NewTxOut(int64(fp.fee), feeScript))
+	tx.TxOut = append(tx.TxOut[:0], wire.NewTxOut(int64(fee), feeScript))
 	feeRate := w.RelayFee()
 	scriptSizes := make([]int, len(tx.TxIn))
 	for i := range scriptSizes {
@@ -428,7 +448,9 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 	}
 	*/
 
+	fp.mu.Lock()
 	fp.feeTx = tx
+	fp.mu.Unlock()
 	return nil
 }
 
@@ -517,7 +539,11 @@ func (fp *feePayment) reconcilePayment() error {
 	// XXX if ticket is no longer saved by wallet (because the tx expired,
 	// or was double spent, etc) remove it
 
-	confs, err := w.TxConfirms(ctx, &fp.feeHash)
+	fp.mu.Unlock()
+	feeHash := fp.feeHash
+	fp.mu.Lock()
+
+	confs, err := w.TxConfirms(ctx, &feeHash)
 	if err != nil {
 		// XXX
 		return err
@@ -544,6 +570,20 @@ func (fp *feePayment) submitPayment() error {
 	ctx := fp.ctx
 	w := fp.client.Wallet
 
+	// submitting a payment requires the fee tx to already be created.
+	fp.mu.Lock()
+	feeTx := fp.feeTx
+	fp.mu.Unlock()
+	if feeTx == nil {
+		feeTx = new(wire.MsgTx)
+	}
+	if len(feeTx.TxOut) == 0 {
+		err := fp.makeFeeTx(feeTx)
+		if err != nil {
+			return err
+		}
+	}
+
 	// Retrieve voting preferences
 	voteChoices := make(map[string]string)
 	agendaChoices, _, err := w.AgendaChoices(ctx, &fp.ticketHash)
@@ -567,7 +607,7 @@ func (fp *feePayment) submitPayment() error {
 	}{
 		Timestamp:   time.Now().Unix(),
 		TicketHash:  fp.ticketHash.String(),
-		FeeTx:       txMarshaler(fp.feeTx),
+		FeeTx:       txMarshaler(feeTx),
 		VotingKey:   fp.votingKey.String(),
 		VoteChoices: voteChoices,
 	})

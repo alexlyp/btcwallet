@@ -2183,7 +2183,6 @@ func (w *Wallet) TxBlock(ctx context.Context, hash *chainhash.Hash) (chainhash.H
 	var height int32
 	err := walletdb.View(ctx, w.db, func(dbtx walletdb.ReadTx) error {
 		ns := dbtx.ReadBucket(wtxmgrNamespaceKey)
-		_, tip = w.txStore.MainChainTip(dbtx)
 		var err error
 		height, err = w.txStore.TxBlockHeight(dbtx, hash)
 		if err != nil {
@@ -2192,10 +2191,8 @@ func (w *Wallet) TxBlock(ctx context.Context, hash *chainhash.Hash) (chainhash.H
 		if height == -1 {
 			return nil
 		}
-		blockHash, err := w.txStore.GetMainChainBlockHashForHeight(ns, txheight)
-		if err != nil {
-			return err
-		}
+		blockHash, err = w.txStore.GetMainChainBlockHashForHeight(ns, height)
+		return err
 	})
 	if err != nil {
 		return blockHash, 0, err
