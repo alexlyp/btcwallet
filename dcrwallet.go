@@ -269,14 +269,12 @@ func run(ctx context.Context) error {
 				PubKey: cfg.VSPOpts.PubKey,
 				Dialer: cfg.dial,
 				Wallet: w,
-				// XXX
-				//PurchaseAccount: purchaseAcct,
-				//ChangeAccount:   changeAcct,
-				//MaxFee:          cfg.VSPOpts.MaxFee.Amount,
-				//Params:          activeNet.Params,
+				Policy: vsp.Policy{
+					MaxFee:     cfg.VSPOpts.MaxFee.Amount,
+					FeeAcct:    purchaseAcct,
+					ChangeAcct: changeAcct,
+				},
 			}
-			_ = changeAcct
-			_ = purchaseAcct
 			vspClient, err = vsp.New(vspCfg)
 			if err != nil {
 				log.Errorf("vsp: %v", err)
@@ -420,7 +418,7 @@ func run(ctx context.Context) error {
 
 		loader.RunAfterLoad(func(w *wallet.Wallet) {
 			if cfg.VSPOpts.Sync {
-				vspClient.ProcessManagedTickets(ctx)
+				vspClient.ProcessManagedTickets(ctx, vspClient.Policy)
 			}
 
 			if cfg.SPV {

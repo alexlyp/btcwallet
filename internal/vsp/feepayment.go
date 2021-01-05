@@ -73,10 +73,7 @@ type feePayment struct {
 	ticketHash     chainhash.Hash
 	commitmentAddr dcrutil.Address
 	votingAddr     dcrutil.Address
-	// Policy
-	maxFee     dcrutil.Amount
-	changeAcct uint32
-	feeAcct    uint32
+	policy         Policy
 
 	// Requires locking for all access outside of Client.feePayment
 	mu            sync.Mutex
@@ -138,7 +135,7 @@ func (fp *feePayment) ticketSpent() bool {
 
 // feePayment returns an existing managed fee payment, or creates and begins
 // processing a fee payment for a ticket.
-func (c *Client) feePayment(ticketHash *chainhash.Hash) (fp *feePayment) {
+func (c *Client) feePayment(ticketHash *chainhash.Hash, policy Policy) (fp *feePayment) {
 	c.mu.Lock()
 	fp = c.jobs[*ticketHash]
 	c.mu.Unlock()
@@ -154,6 +151,7 @@ func (c *Client) feePayment(ticketHash *chainhash.Hash) (fp *feePayment) {
 		client:     c,
 		ctx:        ctx,
 		ticketHash: *ticketHash,
+		policy:     policy,
 	}
 
 	// No VSP interaction is required for spent tickets.
@@ -345,8 +343,9 @@ func (fp *feePayment) receiveFeeAddress() error {
 	feeAmount := dcrutil.Amount(response.FeeAmount)
 
 	log.Infof("VSP requires fee %v", feeAmount)
-	if feeAmount > fp.maxFee {
-		return fmt.Errorf("server fee amount too high: %v > %v", feeAmount, fp.maxFee)
+	if feeAmount > fp.policy.MaxFee {
+		return fmt.Errorf("server fee amount too high: %v > %v",
+			feeAmount, fp.policy.MaxFee)
 	}
 
 	// XXX first, create new fee tx, or fetch previous from db
@@ -392,7 +391,7 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 	// outputs would already be reserved.
 	if len(fpFeeTx.TxIn) == 0 {
 		const minconf = 1
-		inputs, err := w.ReserveOutputsForAmount(ctx, fp.feeAcct, fee, minconf)
+		inputs, err := w.ReserveOutputsForAmount(ctx, fp.policy.FeeAcct, fee, minconf)
 		if err != nil {
 			return fmt.Errorf("unable to reserve enough output value to "+
 				"pay VSP fee for ticket %v: %w", fp.ticketHash, err)
@@ -426,7 +425,7 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 		return err
 	}
 
-	addr, err := w.NewChangeAddress(ctx, fp.changeAcct)
+	addr, err := w.NewChangeAddress(ctx, fp.policy.ChangeAcct)
 	if err != nil {
 		log.Warnf("failed to get new change address: %v", err)
 		return err

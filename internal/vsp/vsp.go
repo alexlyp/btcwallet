@@ -11,6 +11,7 @@ import (
 
 	"decred.org/dcrwallet/wallet"
 	"github.com/decred/dcrd/chaincfg/chainhash"
+	"github.com/decred/dcrd/dcrutil/v3"
 	"github.com/decred/dcrd/wire"
 )
 
@@ -18,8 +19,15 @@ const requiredConfs = 6 + 2
 
 type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 
+type Policy struct {
+	MaxFee     dcrutil.Amount
+	ChangeAcct uint32 // to derive fee addresses
+	FeeAcct    uint32 // to pay fees from, if inputs are not provided to Process
+}
+
 type Client struct {
 	Wallet *wallet.Wallet
+	Policy Policy
 	*client
 
 	mu   sync.Mutex
@@ -38,6 +46,10 @@ type Config struct {
 
 	// Wallet specifies a loaded wallet.
 	Wallet *wallet.Wallet
+
+	// Default policy for fee payments unless another is provided by the
+	// caller.
+	Policy Policy
 }
 
 func New(cfg Config) (*Client, error) {
@@ -60,6 +72,7 @@ func New(cfg Config) (*Client, error) {
 
 	v := &Client{
 		Wallet: cfg.Wallet,
+		Policy: cfg.Policy,
 		client: client,
 		jobs:   make(map[chainhash.Hash]*feePayment),
 	}
@@ -114,7 +127,7 @@ func (c *Client) ForUnspentUnexpiredTickets(ctx context.Context,
 }
 
 // ProcessUnprocessedTickets ...
-func (c *Client) ProcessUnprocessedTickets(ctx context.Context) {
+func (c *Client) ProcessUnprocessedTickets(ctx context.Context, policy Policy) {
 	c.ForUnspentUnexpiredTickets(ctx, func(hash *chainhash.Hash) error {
 		// Skip tickets which have a fee tx already associated with
 		// them; they are already processed by some vsp.
@@ -147,7 +160,7 @@ func (c *Client) ProcessUnprocessedTickets(ctx context.Context) {
 // a VSP and begins syncing them in the background.  This is used to recover VSP
 // tracking after seed restores, and is only performed on unspent and unexpired
 // tickets.
-func (c *Client) ProcessManagedTickets(ctx context.Context) {
+func (c *Client) ProcessManagedTickets(ctx context.Context, policy Policy) {
 	c.ForUnspentUnexpiredTickets(ctx, func(hash *chainhash.Hash) error {
 		c.mu.Lock()
 		fp := c.jobs[*hash]
@@ -165,7 +178,7 @@ func (c *Client) ProcessManagedTickets(ctx context.Context) {
 			return nil
 		}
 
-		fp = c.feePayment(hash)
+		fp = c.feePayment(hash, policy)
 		if fp == nil {
 			return nil
 		}
@@ -186,7 +199,15 @@ func (c *Client) ProcessManagedTickets(ctx context.Context) {
 // error.  The fee transaction is also recorded as unpublised in the wallet, and
 // the fee hash is associated with the ticket.
 func (c *Client) Process(ctx context.Context, ticketHash *chainhash.Hash, feeTx *wire.MsgTx) error {
-	fp := c.feePayment(ticketHash)
+	return c.ProcessWithPolicy(ctx, ticketHash, feeTx, c.Policy)
+}
+
+// ProcessWithPolicy is the same as Process but allows a fee payment policy to
+// be specified, instead of using the client's default policy.
+func (c *Client) ProcessWithPolicy(ctx context.Context, ticketHash *chainhash.Hash, feeTx *wire.MsgTx,
+	policy Policy) error {
+
+	fp := c.feePayment(ticketHash, policy)
 	if fp == nil {
 		return fmt.Errorf("fee payment cannot be processed")
 	}
