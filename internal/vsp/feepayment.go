@@ -459,6 +459,8 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 		}
 	}
 
+	feeHash := tx.TxHash()
+
 	// sign
 	sigErrs, err := w.SignTransaction(ctx, tx, txscript.SigHashAll, nil, nil, nil)
 	if err != nil {
@@ -469,20 +471,25 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 		return err
 	}
 
-	/* XXX
-	err = v.cfg.Wallet.AddTransaction(ctx, feeTx, nil)
+	err = w.SetPublished(ctx, &feeHash, false)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	err = v.cfg.Wallet.SetPublished(ctx, &feeHash, false)
+	err = w.AddTransaction(ctx, tx, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	*/
+	err = w.UpdateVspTicketFeeToPaid(ctx, &fp.ticketHash, &feeHash)
+	if err != nil {
+		return err
+	}
 
 	fp.mu.Lock()
 	fp.feeTx = tx
+	fp.feeHash = feeHash
 	fp.mu.Unlock()
+
+	// nothing scheduled
 	return nil
 }
 
