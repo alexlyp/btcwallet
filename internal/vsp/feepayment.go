@@ -79,13 +79,13 @@ type feePayment struct {
 
 	// Requires locking for all access outside of Client.feePayment
 	mu            sync.Mutex
+	votingKey     string
 	ticketLive    int32
 	ticketExpires int32
-	feeHash       chainhash.Hash
 	fee           dcrutil.Amount
 	feeAddr       dcrutil.Address
+	feeHash       chainhash.Hash
 	feeTx         *wire.MsgTx
-	votingKey     string
 	state         state
 	err           error
 
@@ -285,14 +285,16 @@ func (fp *feePayment) schedule(name string, method func() error) {
 func (fp *feePayment) next() time.Duration {
 	_, tipHeight := fp.client.Wallet.MainChainTip(fp.ctx)
 
-	fp.mu.Lock()
 	var jitter time.Duration
+	fp.mu.Lock()
 	// This liveness check requires the ticket to already be mined.
 	switch {
 	case tipHeight < fp.ticketLive:
 		jitter = immatureJitter
 	case tipHeight < fp.ticketExpires:
 		jitter = liveJitter
+	default:
+		jitter = 3 * time.Second
 	}
 	fp.mu.Unlock()
 
@@ -373,13 +375,12 @@ func (fp *feePayment) receiveFeeAddress() error {
 		return fmt.Errorf("server response has differing request: %#v != %#v",
 			requestBody, response.Request)
 	}
-	// TODO - validate server timestamp?
 
-	_, err = dcrutil.DecodeAddress(response.FeeAddress, params)
+	feeAmount := dcrutil.Amount(response.FeeAmount)
+	feeAddr, err := dcrutil.DecodeAddress(response.FeeAddress, params)
 	if err != nil {
 		return fmt.Errorf("server fee address invalid: %w", err)
 	}
-	feeAmount := dcrutil.Amount(response.FeeAmount)
 
 	log.Infof("VSP requires fee %v", feeAmount)
 	if feeAmount > fp.policy.MaxFee {
@@ -387,7 +388,15 @@ func (fp *feePayment) receiveFeeAddress() error {
 			feeAmount, fp.policy.MaxFee)
 	}
 
-	// XXX first, create new fee tx, or fetch previous from db
+	// XXX validate server timestamp?
+
+	fp.mu.Lock()
+	fp.fee = feeAmount
+	fp.feeAddr = feeAddr
+	fp.mu.Unlock()
+
+	fp.makeFeeTx(nil)
+
 	fp.schedule("submit payment", fp.submitPayment)
 	return nil
 }
@@ -395,6 +404,9 @@ func (fp *feePayment) receiveFeeAddress() error {
 // makeFeeTx adds outputs to tx to pay a VSP fee, optionally adding inputs as
 // well to fund the transaction if no input value is already provided in the
 // transaction.
+//
+// If tx is nil, fp.feeTx may be assigned or modified, but the pointer will not
+// be dereferenced.
 func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 	ctx := fp.ctx
 	w := fp.client.Wallet
@@ -402,16 +414,21 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 	fp.mu.Lock()
 	fee := fp.fee
 	fpFeeTx := fp.feeTx
+	feeAddr := fp.feeAddr
 	fp.mu.Unlock()
 
+	// Fee transaction is already created
 	if fpFeeTx != nil {
-		*tx = *fpFeeTx
+		if tx != nil {
+			*tx = *fpFeeTx
+		}
 		return nil
-	} else {
-		fp.mu.Lock()
-		fp.feeTx = tx
-		fpFeeTx = tx
-		fp.mu.Unlock()
+	}
+
+	// fp.feeTx will be assigned with tx on success.
+	// Create a new empty transaction if none is provided.
+	if tx == nil {
+		tx = wire.NewMsgTx()
 	}
 
 	// XXX fp.fee == -1?
@@ -422,18 +439,17 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 		if err != nil {
 			return err
 		}
+		fp.mu.Lock()
+		fee = fp.fee
+		feeAddr = fp.feeAddr
+		fp.mu.Unlock()
 	}
-
-	fp.mu.Lock()
-	fee = fp.fee
-	feeAddr := fp.feeAddr
-	fp.mu.Unlock()
 
 	// Reserve new outputs to pay the fee if outputs have not already been
 	// reserved.  This will the the case for fee payments that were begun on
 	// already purchased tickets, where the caller did not ensure that fee
 	// outputs would already be reserved.
-	if len(fpFeeTx.TxIn) == 0 {
+	if len(tx.TxIn) == 0 {
 		const minconf = 1
 		inputs, err := w.ReserveOutputsForAmount(ctx, fp.policy.FeeAcct, fee, minconf)
 		if err != nil {
