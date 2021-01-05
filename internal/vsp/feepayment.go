@@ -57,6 +57,8 @@ func init() {
 	}
 }
 
+var errStopped = errors.New("fee processing stopped")
+
 // A random amount of delay (between zero and these jitter constants) is added
 // before performing some background action with the VSP.  The delay is reduced
 // when a ticket is currently live, as it may be called to vote any time.
@@ -131,6 +133,37 @@ func (fp *feePayment) ticketSpent() bool {
 	ticketOut := wire.OutPoint{Hash: fp.ticketHash, Index: 0, Tree: 1}
 	_, _, err := fp.client.Wallet.Spender(ctx, &ticketOut)
 	return err == nil
+}
+
+func (fp *feePayment) ticketExpired() bool {
+	ctx := fp.ctx
+	w := fp.client.Wallet
+	_, tipHeight := w.MainChainTip(ctx)
+
+	fp.mu.Lock()
+	expires := fp.ticketExpires
+	fp.mu.Unlock()
+
+	return expires > 0 && tipHeight >= expires
+}
+
+func (fp *feePayment) removedExpiredOrSpent() bool {
+	var reason string
+	switch {
+	case fp.ticketExpired():
+		reason = "expired"
+	case fp.ticketSpent():
+		reason = "spent"
+	}
+	if reason != "" {
+		log.Infof("ticket %v is %s; removing from VSP client", &fp.ticketHash, reason)
+		fp.client.mu.Lock()
+		delete(fp.client.jobs, fp.ticketHash)
+		fp.client.mu.Unlock()
+		// nothing scheduled
+		return true
+	}
+	return false
 }
 
 // feePayment returns an existing managed fee payment, or creates and begins
@@ -289,6 +322,12 @@ func (fp *feePayment) receiveFeeAddress() error {
 	ctx := fp.ctx
 	w := fp.client.Wallet
 	params := w.ChainParams()
+
+	// stop processing if ticket is expired or spent
+	if fp.removedExpiredOrSpent() {
+		// nothing scheduled
+		return errStopped
+	}
 
 	// Fetch ticket and its parent transaction (typically, a split
 	// transaction).
@@ -554,13 +593,9 @@ func (fp *feePayment) reconcilePayment() error {
 	w := fp.client.Wallet
 
 	// stop processing if ticket is expired or spent
-	if fp.ticketSpent() {
-		log.Infof("ticket %v is spent; removing from VSP client", &fp.ticketHash)
-		fp.client.mu.Lock()
-		delete(fp.client.jobs, fp.ticketHash)
-		fp.client.mu.Unlock()
+	if fp.removedExpiredOrSpent() {
 		// nothing scheduled
-		return nil
+		return errStopped
 	}
 
 	// A fee address has been obtained, and the fee transaction has been
@@ -607,6 +642,12 @@ func (fp *feePayment) reconcilePayment() error {
 func (fp *feePayment) submitPayment() (err error) {
 	ctx := fp.ctx
 	w := fp.client.Wallet
+
+	// stop processing if ticket is expired or spent
+	if fp.removedExpiredOrSpent() {
+		// nothing scheduled
+		return errStopped
+	}
 
 	// Reschedule this method for any error
 	defer func() {
@@ -692,6 +733,12 @@ func (fp *feePayment) submitPayment() (err error) {
 
 func (fp *feePayment) confirmPayment() error {
 	ctx := fp.ctx
+
+	// stop processing if ticket is expired or spent
+	if fp.removedExpiredOrSpent() {
+		// nothing scheduled
+		return nil
+	}
 
 	status, err := fp.status(ctx)
 	if err != nil {
