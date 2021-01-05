@@ -400,13 +400,18 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 	w := fp.client.Wallet
 
 	fp.mu.Lock()
-	fpFeeTx := fp.feeTx
 	fee := fp.fee
+	fpFeeTx := fp.feeTx
 	fp.mu.Unlock()
 
 	if fpFeeTx != nil {
 		*tx = *fpFeeTx
 		return nil
+	} else {
+		fp.mu.Lock()
+		fp.FeeTx = tx
+		fpFeeTx = tx
+		fp.mu.Unlock()
 	}
 
 	// XXX fp.fee == -1?
