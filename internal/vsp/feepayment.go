@@ -604,9 +604,16 @@ func (fp *feePayment) reconcilePayment() error {
 	return nil
 }
 
-func (fp *feePayment) submitPayment() error {
+func (fp *feePayment) submitPayment() (err error) {
 	ctx := fp.ctx
 	w := fp.client.Wallet
+
+	// Reschedule this method for any error
+	defer func() {
+		if err != nil {
+			fp.schedule("submit payment", fp.submitPayment)
+		}
+	}()
 
 	// submitting a payment requires the fee tx to already be created.
 	fp.mu.Lock()
