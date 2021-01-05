@@ -159,12 +159,27 @@ func (c *Client) feePayment(ticketHash *chainhash.Hash) (fp *feePayment) {
 
 	ticket, err := c.tx(ctx, ticketHash)
 	if err != nil {
-		// XXX
+		log.Warnf("no ticket found for %v", ticketHash)
 		return nil
 	}
+
+	_, ticketHeight, err := w.TxBlock(ctx, ticketHash)
+	if err != nil {
+		// This is not expected to ever error, as the ticket was fetched
+		// from the wallet in the above call.
+		log.Errorf("failed to query block which mines ticket: %v", err)
+		return nil
+	}
+	if ticketHeight >= 2 {
+		// Note the off-by-one; this is correct.  Tickets become live
+		// one block after the params would indicate.
+		fp.ticketLive = ticketHeight + params.TicketMaturity + 1
+		fp.ticketExpires = fp.ticketLive + params.TicketExpiry
+	}
+
 	fp.votingAddr, fp.commitmentAddr, err = parseTicket(ticket, params)
 	if err != nil {
-		// XXX
+		log.Errorf("%v is not a ticket: %v", ticketHash, err)
 		return nil
 	}
 
@@ -178,13 +193,25 @@ func (c *Client) feePayment(ticketHash *chainhash.Hash) (fp *feePayment) {
 
 	fee, err := c.tx(ctx, &feeHash)
 	if err != nil {
-		// XXX
+		// A fee hash is recorded for this ticket, but was not found in
+		// the wallet.  This should not happen and may require manual
+		// intervention.
+		//
+		// XXX should check ticketinfo and see if fee is not paid. if
+		// possible, update it with a new fee.
+		fp.err = fmt.Errorf("fee transaction not found in wallet: %w", err)
 		return fp
 	}
+
 	fp.feeTx = fee
 	fp.fee = -1            // XXX fee amount (not needed anymore?)
 	fp.state = unprocessed // XXX fee created, but perhaps not submitted with vsp.
 	fp.schedule("reconcile payment", fp.reconcilePayment)
+
+	c.mu.Lock()
+	c.jobs[*ticketHash] = fp
+	c.mu.Unlock()
+
 	return fp
 }
 
@@ -213,7 +240,7 @@ func (fp *feePayment) schedule(name string, method func() error) {
 func (fp *feePayment) next() time.Duration {
 	_, tipHeight := fp.client.Wallet.MainChainTip(fp.ctx)
 	var jitter time.Duration
-	// XXX this liveness check requires the ticket to already be mined
+	// This liveness check requires the ticket to already be mined.
 	switch {
 	case tipHeight < fp.ticketLive:
 		jitter = immatureJitter

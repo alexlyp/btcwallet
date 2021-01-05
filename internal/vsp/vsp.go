@@ -186,15 +186,10 @@ func (c *Client) ProcessManagedTickets(ctx context.Context) {
 // error.  The fee transaction is also recorded as unpublised in the wallet, and
 // the fee hash is associated with the ticket.
 func (c *Client) Process(ctx context.Context, ticketHash *chainhash.Hash, feeTx *wire.MsgTx) error {
-	var fp *feePayment
-
-	c.mu.Lock()
-	fp = c.jobs[*ticketHash]
+	fp := c.feePayment(ticketHash)
 	if fp == nil {
-		fp = c.feePayment(ticketHash)
-		c.jobs[*ticketHash] = fp
+		return fmt.Errorf("fee payment cannot be processed")
 	}
-	c.mu.Unlock()
 
 	err := fp.receiveFeeAddress()
 	if err != nil {
