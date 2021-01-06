@@ -65,6 +65,7 @@ var errStopped = errors.New("fee processing stopped")
 const (
 	immatureJitter = time.Hour
 	liveJitter     = 5 * time.Minute
+	unminedJitter  = 2 * time.Minute
 )
 
 type feePayment struct {
@@ -283,20 +284,28 @@ func (fp *feePayment) schedule(name string, method func() error) {
 }
 
 func (fp *feePayment) next() time.Duration {
-	_, tipHeight := fp.client.Wallet.MainChainTip(fp.ctx)
+	w := fp.client.Wallet
+	params := w.ChainParams()
+	_, tipHeight := w.MainChainTip(fp.ctx)
+
+	fp.mu.Lock()
+	ticketLive := fp.ticketLive
+	ticketExpires := fp.ticketExpires
+	fp.mu.Unlock()
 
 	var jitter time.Duration
-	fp.mu.Lock()
-	// This liveness check requires the ticket to already be mined.
 	switch {
-	case tipHeight < fp.ticketLive:
-		jitter = immatureJitter
-	case tipHeight < fp.ticketExpires:
+	case tipHeight < ticketLive: // immature, mined ticket
+		blocksUntilLive := ticketExpires - tipHeight
+		jitter = params.TargetTimePerBlock * time.Duration(blocksUntilLive)
+		if jitter > immatureJitter {
+			jitter = immatureJitter
+		}
+	case tipHeight < ticketExpires: // live ticket
 		jitter = liveJitter
-	default:
-		jitter = 3 * time.Second
+	default: // unmined ticket
+		jitter = unminedJitter
 	}
-	fp.mu.Unlock()
 
 	return prng.duration(jitter)
 }
@@ -395,7 +404,11 @@ func (fp *feePayment) receiveFeeAddress() error {
 	fp.feeAddr = feeAddr
 	fp.mu.Unlock()
 
-	fp.makeFeeTx(nil)
+	err = fp.makeFeeTx(nil)
+	if err != nil {
+		fp.schedule("reconcile payment", fp.reconcilePayment)
+		return nil
+	}
 
 	fp.schedule("submit payment", fp.submitPayment)
 	return nil
@@ -425,8 +438,8 @@ func (fp *feePayment) makeFeeTx(tx *wire.MsgTx) error {
 		return nil
 	}
 
-	// fp.feeTx will be assigned with tx on success.
-	// Create a new empty transaction if none is provided.
+	// fp.feeTx will be assigned to tx on success.
+	// Create a new empty transaction if none was provided.
 	if tx == nil {
 		tx = wire.NewMsgTx()
 	}
@@ -619,6 +632,22 @@ func (fp *feePayment) reconcilePayment() error {
 		return errStopped
 	}
 
+	// A fee amount and address must have been created by this point.
+	// Ensure that the fee transaction can be created, otherwise reschedule
+	// this method until it is.  There is no need to check the wallet for a
+	// fee transaction matching a known hash; this is performed when
+	// creating the feePayment.
+	fp.mu.Lock()
+	feeTx := fp.feeTx
+	fp.mu.Unlock()
+	if feeTx != nil || len(feeTx.TxOut) == 0 {
+		err := fp.makeFeeTx(nil)
+		if err != nil {
+			fp.schedule("reconcile payment", fp.reconcilePayment)
+			return err
+		}
+	}
+
 	// A fee address has been obtained, and the fee transaction has been
 	// created, but it is unknown if the VSP has received the fee and will
 	// vote using the ticket.
@@ -762,8 +791,11 @@ func (fp *feePayment) confirmPayment() error {
 	}
 
 	status, err := fp.status(ctx)
-	if err != nil {
+	// Suppress log if the wallet is currently locked.
+	if err != nil && !errors.Is(err, errors.Locked) {
 		log.Warnf("Rescheduling status check for %v: %v", &fp.ticketHash, err)
+	}
+	if err != nil {
 		fp.schedule("confirm payment", fp.confirmPayment)
 		return nil
 	}
